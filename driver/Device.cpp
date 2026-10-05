@@ -26,8 +26,10 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
     deviceContext = DeviceGetContext(device);
     deviceContext->Device = device;
     deviceContext->ActiveSessionID = 0;
+    deviceContext->SessionType = GNSS_FixSession_ContinuousTracking;
     deviceContext->SessionActive = FALSE;
     deviceContext->TimeBetweenFixes = 1000;
+    deviceContext->FixSequenceNumber = 0;
 
     // Create device interface for Windows Location Framework (lfsvc)
     status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNSS, NULL);
@@ -119,10 +121,11 @@ VOID SarabEvtFixTimer(WDFTIMER Timer)
         // Refresh coordinates on each tick so any registry change by CLI is picked up instantly
         LoadSpoofConfigFromRegistry(&deviceContext->Config);
 
-        WDFREQUEST request;
-        NTSTATUS status = WdfIoQueueRetrieveNextRequest(deviceContext->FixDataQueue, &request);
-        if (NT_SUCCESS(status) && request != NULL) {
-            CompleteFixRequest(request, deviceContext->ActiveSessionID, &deviceContext->Config);
+        WDFREQUEST request = NULL;
+        while (NT_SUCCESS(WdfIoQueueRetrieveNextRequest(deviceContext->FixDataQueue, &request)) && request != NULL) {
+            deviceContext->FixSequenceNumber++;
+            CompleteFixRequest(request, deviceContext->ActiveSessionID, deviceContext->SessionType, &deviceContext->Config);
+            request = NULL;
         }
     }
 

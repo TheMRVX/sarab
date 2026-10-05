@@ -48,10 +48,14 @@ fn main() -> Result<()> {
 
         Commands::Status => {
             let (test_signing, boot_opts) = installer::check_test_signing_mode();
+            let (privacy_ok, privacy_desc) = reader::check_location_privacy_consent();
+            let bitlocker_status = installer::check_bitlocker_status();
             let current_config = driver_comm::get_driver_parameters().unwrap_or_default();
 
             println!("\n================ Sarab System Status ================");
             println!("Test Signing Mode: {}", if test_signing { "ENABLED (OK)" } else { "DISABLED (Requires: bcdedit /set testsigning on)" });
+            println!("Location Privacy:  {}", if privacy_ok { "ALLOWED (OK)" } else { &privacy_desc });
+            println!("BitLocker Status:  {}", bitlocker_status);
             println!("Boot Options:      {}", boot_opts);
             println!("Spoof Active:      {}", if current_config.enabled { "YES" } else { "NO" });
             println!("Configured Lat:    {:.7}°", current_config.lat);
@@ -74,6 +78,12 @@ fn main() -> Result<()> {
                     println!("    > bcdedit /set testsigning on");
                     println!("    > shutdown /r /t 0");
                     println!("    (Ensure Secure Boot is turned OFF in your BIOS)\n");
+                    println!("[!] BITLOCKER SAFETY ADVISORY:");
+                    println!("    If BitLocker encryption is active on drive C:, altering BCD boot settings");
+                    println!("    or turning off Secure Boot may trigger BitLocker Recovery Mode on reboot!");
+                    println!("    -> Have your 48-digit BitLocker recovery key accessible, OR");
+                    println!("    -> Temporarily suspend BitLocker protection for 1 reboot:");
+                    println!("       manage-bde -protectors -disable C: -RebootCount 1\n");
                 }
 
                 if cer_path.exists() {

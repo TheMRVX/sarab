@@ -75,6 +75,23 @@ shutdown /r /t 0
 ```
 *(Ensure Secure Boot is disabled in BIOS first, otherwise the command will fail).*
 
+> [!CAUTION]
+> **BitLocker Recovery Key Notice:**
+> If BitLocker encryption is active on drive `C:`, altering BCD settings or disabling Secure Boot can trigger a prompt for your **48-digit BitLocker Recovery Key** on reboot.
+> **Safety Recommendation:**
+> - Ensure your BitLocker Recovery Key is accessible (e.g., from [account.microsoft.com/devices/recoverykey](https://account.microsoft.com/devices/recoverykey)), OR
+> - Temporarily suspend BitLocker protection for 1 reboot before restarting:
+>   ```cmd
+>   manage-bde -protectors -disable C: -RebootCount 1
+>   ```
+
+> [!IMPORTANT]
+> **Windows Location Privacy Requirements:**
+> For apps (and the `sarab read` command) to receive spoofed coordinates, Windows Location Services must be permitted:
+> - Open **Settings (Win + I) -> Privacy & Security -> Location**.
+> - Ensure **Location services** is toggled **ON**.
+> - Ensure **Let desktop apps access your location** is toggled **ON**.
+
 ### 3. Install the Driver
 Open Administrator Command Prompt in the extracted folder:
 ```cmd

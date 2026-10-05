@@ -86,15 +86,17 @@ VOID SarabEvtIoDeviceControl(
         if (NT_SUCCESS(status) && pParam != NULL) {
             WdfWaitLockAcquire(deviceContext->Lock, NULL);
             deviceContext->ActiveSessionID = pParam->FixSessionID;
+            deviceContext->SessionType = pParam->SessionType;
             deviceContext->SessionActive = TRUE;
             deviceContext->TimeBetweenFixes = (pParam->TimeBetweenFixes > 0) ? pParam->TimeBetweenFixes : 1000;
+            deviceContext->FixSequenceNumber = 0;
             LoadSpoofConfigFromRegistry(&deviceContext->Config);
             WdfWaitLockRelease(deviceContext->Lock);
 
-            TraceEvents(0, 0, "Started fix session ID: %u, Interval: %u ms",
-                deviceContext->ActiveSessionID, deviceContext->TimeBetweenFixes);
+            TraceEvents(0, 0, "Started fix session ID: %u, Type: %d, Interval: %u ms",
+                deviceContext->ActiveSessionID, (int)deviceContext->SessionType, deviceContext->TimeBetweenFixes);
 
-            // Start periodic timer
+            // Start periodic timer with immediate first tick
             WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(10));
             status = STATUS_SUCCESS;
         }

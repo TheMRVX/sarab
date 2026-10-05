@@ -132,8 +132,12 @@ jobs:
           # Create helper install & uninstall batch scripts for convenience
           @"
           @echo off
-          echo Installing Sarab Virtual GNSS Driver...
+          echo =======================================================
+          echo   Installing Sarab Virtual GNSS Driver
+          echo =======================================================
+          echo.
           sarab.exe driver install
+          echo.
           pause
           "@ | Out-File -FilePath "$packageDir\install.bat" -Encoding ascii
 

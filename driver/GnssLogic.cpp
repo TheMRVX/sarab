@@ -67,7 +67,7 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
         config->Latitude, config->Longitude, config->Altitude, config->Accuracy, config->Enabled);
 }
 
-NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, const SpoofConfig* config)
+NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSION_TYPE SessionType, const SpoofConfig* config)
 {
     PGNSS_FIXDATA pFixData = NULL;
     size_t outBufferSize = 0;
@@ -91,7 +91,9 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, const SpoofC
     pFixData->Version = GNSS_DRIVER_VERSION_1;
     pFixData->FixSessionID = FixSessionID;
     pFixData->FixStatus = STATUS_SUCCESS;
-    pFixData->IsFinalFix = TRUE;
+    // For continuous tracking, IsFinalFix MUST be FALSE so Windows Location Service keeps listening.
+    // Setting IsFinalFix = TRUE on a continuous session signals termination and causes fallback to IP/Wi-Fi.
+    pFixData->IsFinalFix = (SessionType == GNSS_FixSession_SingleShot);
     GetSystemTimeAsFileTime(&pFixData->FixTimeStamp);
     pFixData->FixLevelOfDetails = GNSS_FIXDETAIL_BASIC | GNSS_FIXDETAIL_ACCURACY;
 
@@ -111,8 +113,8 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, const SpoofC
     pFixData->AccuracyData.AltitudeAccuracy = config->Accuracy;
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_FIXDATA));
-    TraceEvents(0, 0, "Completed fix for Session %u: Lat=%.6f Lon=%.6f Acc=%u",
-        FixSessionID, config->Latitude, config->Longitude, config->Accuracy);
+    TraceEvents(0, 0, "Completed fix for Session %u (Type=%d, Final=%d): Lat=%.6f Lon=%.6f Acc=%u",
+        FixSessionID, (int)SessionType, (int)pFixData->IsFinalFix, config->Latitude, config->Longitude, config->Accuracy);
 
     return STATUS_SUCCESS;
 }

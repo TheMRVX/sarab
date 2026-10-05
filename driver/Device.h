@@ -10,11 +10,13 @@ typedef struct _DEVICE_CONTEXT {
     WDFTIMER    FixTimer;           // Periodic timer for GNSS fix injection
     WDFWAITLOCK Lock;               // Synchronization lock
 
-    ULONG       ActiveSessionID;
-    BOOL        SessionActive;
-    ULONG       TimeBetweenFixes;   // Milliseconds (default: 1000)
+    ULONG                ActiveSessionID;
+    GNSS_FIXSESSION_TYPE SessionType;        // SingleShot vs ContinuousTracking
+    BOOL                 SessionActive;
+    ULONG                TimeBetweenFixes;   // Milliseconds (default: 1000)
+    ULONG                FixSequenceNumber;  // Total heartbeats/fixes completed
 
-    SpoofConfig Config;
+    SpoofConfig          Config;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)

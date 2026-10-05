@@ -67,6 +67,26 @@ pub fn check_test_signing_mode() -> (bool, String) {
     (false, "Unknown".to_string())
 }
 
+pub fn check_bitlocker_status() -> String {
+    #[cfg(windows)]
+    {
+        if let Ok(output) = std::process::Command::new("manage-bde")
+            .args(["-status", "C:"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_uppercase();
+            if text.contains("PROTECTION ON") {
+                return "ACTIVE (Protection ON)".to_string();
+            } else if text.contains("PROTECTION OFF") {
+                return "SUSPENDED / OFF".to_string();
+            } else if text.contains("PERCENTAGE ENCRYPTED: 0") {
+                return "NOT ENCRYPTED".to_string();
+            }
+        }
+    }
+    "UNKNOWN / NOT DETECTED".to_string()
+}
+
 #[cfg(windows)]
 pub fn install_certificate_to_stores(cer_path: &Path) -> Result<()> {
     use anyhow::Context;

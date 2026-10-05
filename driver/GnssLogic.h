@@ -14,4 +14,4 @@ struct SpoofConfig {
 void LoadSpoofConfigFromRegistry(SpoofConfig* config);
 
 // Fills GNSS_FIXDATA and completes the WDF request
-NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, const SpoofConfig* config);
+NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSION_TYPE SessionType, const SpoofConfig* config);
