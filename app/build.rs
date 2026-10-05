@@ -1,8 +1,12 @@
 fn main() {
     #[cfg(windows)]
     {
-        println!("cargo:rerun-if-changed=app.manifest");
-        println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
-        println!("cargo:rustc-link-arg-bins=/MANIFESTINPUT:app.manifest");
+        // Only embed requireAdministrator manifest for release binary builds,
+        // avoiding mt.exe conflict with cargo test test-harness manifest.
+        let is_release = std::env::var("PROFILE").map(|p| p == "release").unwrap_or(false);
+        if is_release {
+            println!("cargo:rustc-link-arg-bins=/MANIFEST:EMBED");
+            println!("cargo:rustc-link-arg-bins=/MANIFESTUAC:level='requireAdministrator' uiAccess='false'");
+        }
     }
 }
