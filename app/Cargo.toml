@@ -1,0 +1,33 @@
+[package]
+name = "sarab"
+version = "0.1.0"
+edition = "2021"
+authors = ["TheMRVX"]
+description = "High-precision GPS location spoofer for Windows 10/11"
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+toml = "0.8"
+anyhow = "1.0"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "0.58"
+features = [
+    "Win32_Foundation",
+    "Win32_System_Registry",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Security_Cryptography",
+    "Win32_System_Services",
+    "Win32_System_SystemInformation",
+    "Win32_Storage_FileSystem",
+    "Devices_Geolocation",
+]
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
