@@ -1,0 +1,52 @@
+# Rust build artifacts
+target/
+app/target/
+**/*.rs.bk
+*.pdb
+
+# Visual Studio & MSBuild
+.vs/
+*.user
+*.suo
+Debug/
+Release/
+x64/
+ARM64/
+driver/Debug/
+driver/Release/
+driver/x64/
+driver/ARM64/
+*.obj
+*.ilk
+*.tlog
+*.idb
+*.lastbuildstate
+*.log
+*.VC.db
+*.VC.opendb
+packages/
+*.nuget.props
+*.nuget.targets
+
+# Driver Package & Signing Artifacts
+*.cat
+*.cer
+*.crt
+*.pfx
+*.p12
+*.pem
+*.key
+artifacts/
+package/
+driver/package/
+
+# Environment and Secrets
+.env
+.env.*
+*.secret
+*.local
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+desktop.ini
