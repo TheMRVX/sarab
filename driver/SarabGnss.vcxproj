@@ -61,7 +61,7 @@
       <AdditionalIncludeDirectories>$(WDF_INC_DIR);$(UMDF_INC_PATH);$(WDF_INC_PATH);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(WDF_UMDF_LIBRARIES);WdfDriverStubUm.lib;Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(WDF_UMDF_LIBRARIES);WdfDriverStubUm.lib;ntdll.lib;kernel32.lib;Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(WDF_LIB_DIR);$(WDF_LIB_PATH);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
@@ -73,7 +73,7 @@
       <AdditionalIncludeDirectories>$(WDF_INC_DIR);$(UMDF_INC_PATH);$(WDF_INC_PATH);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>$(WDF_UMDF_LIBRARIES);WdfDriverStubUm.lib;Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(WDF_UMDF_LIBRARIES);WdfDriverStubUm.lib;ntdll.lib;kernel32.lib;Advapi32.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(WDF_LIB_DIR);$(WDF_LIB_PATH);%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
