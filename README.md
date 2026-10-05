@@ -1,4 +1,4 @@
-# Sarab (سراب) — Windows Location Spoofer
+# Sarab — Windows Location Spoofer
 
 [![CI Build](https://github.com/TheMRVX/sarab/actions/workflows/build.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/build.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
