@@ -44,22 +44,22 @@ jobs:
           nuget install Microsoft.Windows.WDK.x64 -OutputDirectory packages -ExcludeVersion
           
           Write-Host "[*] Locating WDF header and library directories..."
-          $wdfHeader = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "wdf.h" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $wdfHeader = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "wdf.h" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\umdf\*" } | Select-Object -First 1
           if ($wdfHeader) {
               $incDir = $wdfHeader.DirectoryName
-              Write-Host "[+] Found WDF include at: $incDir"
+              Write-Host "[+] Found UMDF include at: $incDir"
               "WDF_INC_DIR=$incDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-              throw "[-] wdf.h not found!"
+              throw "[-] UMDF wdf.h not found!"
           }
 
-          $wdfLib = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "WdfDriverStubUm.lib" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+          $wdfLib = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "WdfDriverStubUm.lib" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\umdf\*" -and $_.FullName -like "*\x64\*" } | Select-Object -First 1
           if ($wdfLib) {
               $libDir = $wdfLib.DirectoryName
-              Write-Host "[+] Found WDF x64 library at: $libDir"
+              Write-Host "[+] Found UMDF x64 library at: $libDir"
               "WDF_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-              throw "[-] WdfDriverStubUm.lib not found!"
+              throw "[-] UMDF WdfDriverStubUm.lib not found!"
           }
 
       - name: Build UMDF 2.0 Driver

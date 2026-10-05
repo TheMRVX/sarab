@@ -4,7 +4,11 @@
 
 WDF_EXTERN_C_START
 
-DRIVER_INITIALIZE DriverEntry;
+NTSTATUS DriverEntry(
+    _In_ PDRIVER_OBJECT  DriverObject,
+    _In_ PUNICODE_STRING RegistryPath
+);
+
 EVT_WDF_DRIVER_DEVICE_ADD SarabEvtDeviceAdd;
 
 WDF_EXTERN_C_END

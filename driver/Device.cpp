@@ -10,8 +10,6 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
     PDEVICE_CONTEXT deviceContext;
     NTSTATUS status;
 
-    PAGED_CODE();
-
     WDF_PNPPOWER_EVENT_CALLBACKS_INIT(&pnpPowerCallbacks);
     pnpPowerCallbacks.EvtDeviceD0Entry = SarabEvtDeviceD0Entry;
     pnpPowerCallbacks.EvtDeviceD0Exit  = SarabEvtDeviceD0Exit;
