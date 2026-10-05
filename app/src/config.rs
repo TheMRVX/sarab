@@ -57,6 +57,7 @@ pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn load_local_config() -> SpoofConfig {
     let path = get_config_path();
     if let Ok(data) = fs::read_to_string(&path) {

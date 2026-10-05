@@ -54,13 +54,13 @@ pub fn check_test_signing_mode() -> (bool, String) {
                 )
                 .is_ok()
                 {
-                    RegCloseKey(hkey);
+                    let _ = RegCloseKey(hkey);
                     let len = (size as usize) / 2;
                     let opts = String::from_utf16_lossy(&buf[..len]).to_uppercase();
                     let enabled = opts.contains("TESTSIGNING");
                     return (enabled, opts.trim().to_string());
                 }
-                RegCloseKey(hkey);
+                let _ = RegCloseKey(hkey);
             }
         }
     }
@@ -70,12 +70,6 @@ pub fn check_test_signing_mode() -> (bool, String) {
 #[cfg(windows)]
 pub fn install_certificate_to_stores(cer_path: &Path) -> Result<()> {
     use anyhow::Context;
-    use windows::core::PCWSTR;
-    use windows::Win32::Security::Cryptography::{
-        CertAddCertificateContextToStore, CertCloseStore, CertCreateCertificateContext,
-        CertOpenStore, CERT_CONTEXT, CERT_STORE_ADD_REPLACE_EXISTING,
-        CERT_STORE_PROV_SYSTEM_W, CERT_SYSTEM_STORE_LOCAL_MACHINE, X509_ASN_ENCODING,
-    };
 
     if !cer_path.exists() {
         return Err(anyhow::anyhow!(
@@ -84,47 +78,25 @@ pub fn install_certificate_to_stores(cer_path: &Path) -> Result<()> {
         ));
     }
 
-    let cert_bytes = std::fs::read(cer_path)
-        .with_context(|| format!("Failed to read certificate file {:?}", cer_path))?;
+    let cer_str = cer_path
+        .to_str()
+        .ok_or_else(|| anyhow::anyhow!("Invalid certificate path"))?;
 
-    let stores = ["ROOT", "TrustedPublisher"];
+    for store in ["Root", "TrustedPublisher"] {
+        let output = std::process::Command::new("certutil")
+            .args(["-addstore", "-f", store, cer_str])
+            .output()
+            .with_context(|| format!("Failed to run certutil for store {}", store))?;
 
-    for store_name in stores {
-        let wide_name: Vec<u16> = store_name.encode_utf16().chain(std::iter::once(0)).collect();
-        unsafe {
-            let h_store = CertOpenStore(
-                CERT_STORE_PROV_SYSTEM_W,
-                0,
-                0,
-                CERT_SYSTEM_STORE_LOCAL_MACHINE,
-                Some(wide_name.as_ptr() as *const _),
-            );
-            if h_store.is_invalid() {
-                return Err(anyhow::anyhow!("Failed to open certificate store: {}", store_name));
-            }
-
-            let cert_context: *const CERT_CONTEXT = CertCreateCertificateContext(
-                X509_ASN_ENCODING,
-                cert_bytes.as_ptr(),
-                cert_bytes.len() as u32,
-            );
-            if cert_context.is_null() {
-                let _ = CertCloseStore(h_store, 0);
-                return Err(anyhow::anyhow!("Failed to parse certificate context"));
-            }
-
-            let add_res = CertAddCertificateContextToStore(
-                h_store,
-                cert_context,
-                CERT_STORE_ADD_REPLACE_EXISTING,
-                None,
-            );
-
-            let _ = CertCloseStore(h_store, 0);
-
-            if add_res.is_err() {
-                return Err(anyhow::anyhow!("Failed to add certificate to {} store", store_name));
-            }
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            return Err(anyhow::anyhow!(
+                "certutil failed for store {}: stdout: {}, stderr: {}",
+                store,
+                stdout,
+                stderr
+            ));
         }
     }
 
@@ -139,7 +111,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
         SetupDiCallClassInstaller, SetupDiCreateDeviceInfoList, SetupDiCreateDeviceInfoW,
         SetupDiDestroyDeviceInfoList, SetupDiSetDeviceRegistryPropertyW,
         UpdateDriverForPlugAndPlayDevicesW, DIF_REGISTERDEVICE, INSTALLFLAG_FORCE,
-        SPDRP_HARDWAREID, SP_DEVINFO_DATA,
+        SETUP_DI_DEVICE_CREATION_FLAGS, SPDRP_HARDWAREID, SP_DEVINFO_DATA,
     };
     use windows::Win32::Foundation::BOOL;
 
@@ -153,7 +125,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
 
     unsafe {
         let dev_info = SetupDiCreateDeviceInfoList(Some(&sensor_guid), None)
-            .context("SetupDiCreateDeviceInfoList failed")?;
+            .map_err(|e| anyhow::anyhow!("SetupDiCreateDeviceInfoList failed: {:?}", e))?;
 
         let mut dev_data = SP_DEVINFO_DATA {
             cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
@@ -169,7 +141,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
             &sensor_guid,
             None,
             None,
-            0,
+            SETUP_DI_DEVICE_CREATION_FLAGS(0),
             Some(&mut dev_data),
         );
         if create_res.is_err() {
@@ -190,7 +162,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
 
         let prop_res = SetupDiSetDeviceRegistryPropertyW(
             dev_info,
-            &dev_data,
+            &mut dev_data,
             SPDRP_HARDWAREID,
             Some(&hwid_bytes),
         );
@@ -199,7 +171,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
             return Err(anyhow::anyhow!("SetupDiSetDeviceRegistryPropertyW failed: {:?}", prop_res));
         }
 
-        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&dev_data));
+        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&mut dev_data));
         let _ = SetupDiDestroyDeviceInfoList(dev_info);
 
         if reg_res.is_err() {
@@ -235,7 +207,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
 
 #[cfg(windows)]
 pub fn uninstall_driver_device() -> Result<()> {
-    use windows::core::{GUID, PCWSTR};
+    use windows::core::GUID;
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         SetupDiCallClassInstaller, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
         SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, DIF_REMOVE, DIGCF_ALLCLASSES,
@@ -243,10 +215,8 @@ pub fn uninstall_driver_device() -> Result<()> {
     };
 
     unsafe {
-        let dev_info = SetupDiGetClassDevsW(None, None, None, DIGCF_ALLCLASSES);
-        if dev_info.is_invalid() {
-            return Err(anyhow::anyhow!("SetupDiGetClassDevsW failed"));
-        }
+        let dev_info = SetupDiGetClassDevsW(None, None, None, DIGCF_ALLCLASSES)
+            .map_err(|e| anyhow::anyhow!("SetupDiGetClassDevsW failed: {:?}", e))?;
 
         let mut dev_data = SP_DEVINFO_DATA {
             cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
@@ -264,7 +234,7 @@ pub fn uninstall_driver_device() -> Result<()> {
 
             if SetupDiGetDeviceRegistryPropertyW(
                 dev_info,
-                &dev_data,
+                &mut dev_data,
                 SPDRP_HARDWAREID,
                 None,
                 Some(&mut buf),
@@ -279,7 +249,7 @@ pub fn uninstall_driver_device() -> Result<()> {
                 let hwid_str = String::from_utf16_lossy(wide_slice);
                 if hwid_str.contains("Root\\SarabGnss") {
                     println!("[+] Removing device: {}", hwid_str.trim_matches('\0'));
-                    let _ = SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&dev_data));
+                    let _ = SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&mut dev_data));
                     removed_count += 1;
                 }
             }

@@ -5,7 +5,6 @@ pub const LFSVC_REG_PATH: &str = "System\\CurrentControlSet\\Services\\lfsvc\\Se
 
 #[cfg(windows)]
 pub fn set_simple_default_location(lat: f64, lon: f64) -> Result<()> {
-    use anyhow::Context;
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE,
@@ -41,15 +40,17 @@ pub fn set_simple_default_location(lat: f64, lon: f64) -> Result<()> {
                 wide_val.as_ptr() as *const u8,
                 wide_val.len() * 2,
             );
-            RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice))
-                .with_context(|| format!("Failed to set '{}'", name))?;
+            let res = RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice));
+            if res.0 != 0 {
+                return Err(anyhow::anyhow!("Failed to set '{}': error code {}", name, res.0));
+            }
             Ok(())
         };
 
         write_str(hkey, "DefaultLatitude", &format!("{:.7}", lat))?;
         write_str(hkey, "DefaultLongitude", &format!("{:.7}", lon))?;
 
-        RegCloseKey(hkey);
+        let _ = RegCloseKey(hkey);
     }
 
     println!("[+] Default location written to lfsvc registry.");

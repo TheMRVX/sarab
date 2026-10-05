@@ -6,7 +6,6 @@ pub const DRIVER_REG_PATH: &str = "System\\CurrentControlSet\\Services\\SarabGns
 
 #[cfg(windows)]
 pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
-    use anyhow::Context;
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
@@ -39,8 +38,10 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
                 wide_val.as_ptr() as *const u8,
                 wide_val.len() * 2,
             );
-            RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice))
-                .with_context(|| format!("Failed to set registry value '{}'", name))?;
+            let res = RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice));
+            if res.0 != 0 {
+                return Err(anyhow::anyhow!("Failed to set registry value '{}': error code {}", name, res.0));
+            }
             Ok(())
         };
 
@@ -52,10 +53,12 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
         let enabled_dw: u32 = if config.enabled { 1 } else { 0 };
         let dw_bytes = enabled_dw.to_ne_bytes();
         let h_enabled = HSTRING::from("Enabled");
-        RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes))
-            .context("Failed to set 'Enabled' registry value")?;
+        let res = RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes));
+        if res.0 != 0 {
+            return Err(anyhow::anyhow!("Failed to set 'Enabled' registry value: error code {}", res.0));
+        }
 
-        windows::Win32::System::Registry::RegCloseKey(hkey);
+        let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
     }
 
     Ok(())
@@ -63,7 +66,6 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
 
 #[cfg(windows)]
 pub fn set_driver_enabled(enabled: bool) -> Result<()> {
-    use anyhow::Context;
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
@@ -81,10 +83,12 @@ pub fn set_driver_enabled(enabled: bool) -> Result<()> {
         let enabled_dw: u32 = if enabled { 1 } else { 0 };
         let dw_bytes = enabled_dw.to_ne_bytes();
         let h_enabled = HSTRING::from("Enabled");
-        RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes))
-            .context("Failed to set 'Enabled' value")?;
+        let res = RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes));
+        if res.0 != 0 {
+            return Err(anyhow::anyhow!("Failed to set 'Enabled' value: error code {}", res.0));
+        }
 
-        windows::Win32::System::Registry::RegCloseKey(hkey);
+        let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
     }
 
     Ok(())
@@ -152,7 +156,7 @@ pub fn get_driver_parameters() -> Result<SpoofConfig> {
             Some(&mut dw_size),
         );
 
-        RegCloseKey(hkey);
+        let _ = RegCloseKey(hkey);
 
         Ok(SpoofConfig {
             lat,
