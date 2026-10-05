@@ -37,32 +37,35 @@ jobs:
           cd app
           cargo test --verbose
 
-      - name: Locate WDF Paths
+      - name: Setup WDK Packages and Locate Paths
         shell: pwsh
         run: |
+          Write-Host "[*] Installing Microsoft.Windows.WDK.x64 via NuGet..."
+          nuget install Microsoft.Windows.WDK.x64 -OutputDirectory packages -ExcludeVersion
+          
           Write-Host "[*] Locating WDF header and library directories..."
-          $wdfHeader = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\Include" -Filter "wdf.h" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+          $wdfHeader = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "wdf.h" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
           if ($wdfHeader) {
               $incDir = $wdfHeader.DirectoryName
               Write-Host "[+] Found WDF include at: $incDir"
               "WDF_INC_DIR=$incDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-              Write-Warning "[-] wdf.h not found in standard Windows Kits path!"
+              throw "[-] wdf.h not found!"
           }
 
-          $wdfLib = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits\10\Lib" -Filter "WdfDriverStubUm.lib" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
+          $wdfLib = Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "WdfDriverStubUm.lib" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1
           if ($wdfLib) {
               $libDir = $wdfLib.DirectoryName
               Write-Host "[+] Found WDF x64 library at: $libDir"
               "WDF_LIB_DIR=$libDir" | Out-File -FilePath $env:GITHUB_ENV -Append
           } else {
-              Write-Warning "[-] WdfDriverStubUm.lib not found in standard Windows Kits path!"
+              throw "[-] WdfDriverStubUm.lib not found!"
           }
 
       - name: Build UMDF 2.0 Driver
         shell: cmd
         run: |
-          msbuild driver\SarabGnss.vcxproj /p:Configuration=Release /p:Platform=x64 /p:TargetVersion=Windows10 /v:normal
+          msbuild driver\SarabGnss.vcxproj /p:Configuration=Release /p:Platform=x64 /p:TargetVersion=Windows10 /p:WDF_INC_DIR="%WDF_INC_DIR%" /p:WDF_LIB_DIR="%WDF_LIB_DIR%" /v:normal
 
       - name: Create Test Certificate and Sign Driver Package
         shell: pwsh
@@ -86,12 +89,12 @@ jobs:
           Write-Host "[+] Certificate exported to $cerPath"
 
           # Find Inf2Cat.exe
-          $inf2cat = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "Inf2Cat.exe" -Recurse | Select-Object -First 1).FullName
+          $inf2cat = (Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "Inf2Cat.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
           Write-Host "[*] Running Inf2Cat using $inf2cat..."
           & $inf2cat /driver:$driverDir /os:10_x64,Server10_x64
 
           # Find signtool.exe
-          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter "signtool.exe" -Recurse | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1).FullName
+          $signtool = (Get-ChildItem -Path "packages", "C:\Program Files (x86)\Windows Kits\10" -Filter "signtool.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -like "*\x64\*" } | Select-Object -First 1).FullName
           Write-Host "[*] Signing driver files with $signtool..."
           & $signtool sign /fd SHA256 /a /s My /n "Sarab Test Signing Certificate" "$driverDir\SarabGnss.cat"
           & $signtool sign /fd SHA256 /a /s My /n "Sarab Test Signing Certificate" "$driverDir\SarabGnss.dll"
