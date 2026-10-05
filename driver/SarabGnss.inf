@@ -1,0 +1,82 @@
+;
+; SarabGnss.inf
+; UMDF 2.0 Driver for Sarab Virtual GNSS Device
+; Copyright (c) 2026 TheMRVX. All rights reserved.
+;
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Sensor
+ClassGuid={5175D334-C371-4806-B3BA-71FD53C9258D}
+Provider=%ProviderString%
+CatalogFile=SarabGnss.cat
+DriverVer=10/05/2026,1.0.0.0
+PnpLockdown=1
+
+[DestinationDirs]
+DefaultDestDir = 12,UMDF ; %SystemRoot%\System32\drivers\UMDF
+
+[SourceDisksNames]
+1 = %DiskName%,,,""
+
+[SourceDisksFiles]
+SarabGnss.dll = 1,,
+
+; ================= Class section =====================
+
+[Manufacturer]
+%ManufacturerName%=Standard,NTamd64.10.0
+
+[Standard.NTamd64.10.0]
+%SarabGnss.DeviceDesc%=SarabGnss_Device, Root\SarabGnss
+
+; ================= Installation =====================
+
+[SarabGnss_Device.NT]
+CopyFiles=UMDFDrivers_CopyFiles
+
+[UMDFDrivers_CopyFiles]
+SarabGnss.dll
+
+[SarabGnss_Device.NT.hw]
+AddReg=SarabGnss_Device_AddReg
+
+[SarabGnss_Device_AddReg]
+; Allow LocalService (WUDFHost) and Users to read parameters
+HKR,,"Security",,"D:P(A;CI;GA;;;BA)(A;CI;GA;;;SY)(A;CI;GR;;;LS)(A;CI;GR;;;BU)"
+
+[SarabGnss_Device.NT.Services]
+AddService=WUDFRd,0x000001fa,WUDFRD_ServiceInstall
+
+[WUDFRD_ServiceInstall]
+DisplayName = %WudfRdDisplayName%
+ServiceType = 1
+StartType = 3
+ErrorControl = 1
+ServiceBinary = %12%\WUDFRd.sys
+
+[SarabGnss_Device.NT.Wdf]
+UmdfService=SarabGnss, SarabGnss_Install
+UmdfServiceOrder=SarabGnss
+UmdfDispatcher=FileHandle
+
+[SarabGnss_Install]
+UmdfLibraryVersion=2.15.0
+ServiceBinary=%12%\UMDF\SarabGnss.dll
+
+; Add default registry parameters for the driver service
+[SarabGnss_Device.NT.Services.AddReg]
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Latitude",0x00000000,"35.6997"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Longitude",0x00000000,"51.3380"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Altitude",0x00000000,"1200.0"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Accuracy",0x00000000,"5.0"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Enabled",0x00010001,1
+
+; ================= Strings =====================
+
+[Strings]
+ProviderString = "TheMRVX"
+ManufacturerName = "TheMRVX"
+DiskName = "Sarab Virtual GNSS Installation Disk"
+SarabGnss.DeviceDesc = "Sarab Virtual GNSS Device"
+WudfRdDisplayName = "Windows Driver Foundation - User-mode Driver Framework Reflector"
