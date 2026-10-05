@@ -4,7 +4,15 @@ use std::path::{Path, PathBuf};
 #[allow(dead_code)]
 pub const HARDWARE_ID: &str = "Root\\SarabGnss";
 #[allow(dead_code)]
-pub const SENSOR_CLASS_GUID_STR: &str = "{5175D334-C371-4806-B3BA-71FD53C9258D}";
+pub const SENSOR_CLASS_GUID_STR: &str = "5175D334-C371-4806-B3BA-71FD53C9258D";
+
+#[cfg(windows)]
+pub const SENSOR_CLASS_GUID: windows::core::GUID = windows::core::GUID::from_values(
+    0x5175D334,
+    0xC371,
+    0x4806,
+    [0xB3, 0xBA, 0x71, 0xFD, 0x53, 0xC9, 0x25, 0x8D],
+);
 
 pub fn find_driver_files(custom_inf: Option<String>) -> Result<(PathBuf, PathBuf)> {
     let inf_path = if let Some(path_str) = custom_inf {
@@ -126,7 +134,7 @@ pub fn install_certificate_to_stores(cer_path: &Path) -> Result<()> {
 #[cfg(windows)]
 pub fn install_driver_device(inf_path: &Path) -> Result<()> {
     use anyhow::Context;
-    use windows::core::{GUID, PCWSTR};
+    use windows::core::PCWSTR;
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         SetupDiCallClassInstaller, SetupDiCreateDeviceInfoList, SetupDiCreateDeviceInfoW,
         SetupDiDestroyDeviceInfoList, SetupDiSetDeviceRegistryPropertyW,
@@ -140,8 +148,8 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
     let inf_str = abs_inf.to_string_lossy().to_string();
     let wide_inf: Vec<u16> = inf_str.encode_utf16().chain(std::iter::once(0)).collect();
 
-    // Sensor class GUID: {5175D334-C371-4806-B3BA-71FD53C9258D}
-    let sensor_guid = GUID::from(SENSOR_CLASS_GUID_STR);
+    // Sensor class GUID: 5175D334-C371-4806-B3BA-71FD53C9258D
+    let sensor_guid = SENSOR_CLASS_GUID;
 
     unsafe {
         let dev_info = SetupDiCreateDeviceInfoList(Some(&sensor_guid), None)
