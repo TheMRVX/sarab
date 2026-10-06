@@ -13,20 +13,21 @@ on:
         required: false
         default: ''
 
+# Least privilege by default; only the release job is granted write access.
 permissions:
-  contents: write
-  packages: write
+  contents: read
 
 jobs:
   build:
     name: Build Driver and CLI (x64)
     runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.package.outputs.tag }}
+      should_release: ${{ steps.package.outputs.should_release }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -41,10 +42,10 @@ jobs:
         with:
           workspaces: app -> target
 
-      - name: Build Rust Unit Tests
+      - name: Run Rust Unit Tests
         run: |
           cd app
-          cargo test --verbose
+          cargo test --locked --verbose
 
       - name: Setup WDK Packages and Locate Paths
         shell: pwsh
@@ -122,10 +123,13 @@ jobs:
         shell: cmd
         run: |
           cd app
-          cargo build --release
+          cargo build --release --locked
 
       - name: Package Release Bundle
+        id: package
         shell: pwsh
+        env:
+          INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
         run: |
           $packageDir = "release_package"
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
@@ -157,12 +161,20 @@ jobs:
           pause
           "@ | Out-File -FilePath "$packageDir\uninstall.bat" -Encoding ascii
 
-          # Determine version tag dynamically
+          # Determine version tag and whether this run should publish a release
           $tag = "v0.1.1-alpha"
+          $shouldRelease = "false"
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
               $tag = $env:GITHUB_REF_NAME
+              $shouldRelease = "true"
           } elseif ($env:INPUT_RELEASE_TAG) {
               $tag = $env:INPUT_RELEASE_TAG
+              $shouldRelease = "true"
+          }
+
+          # Validate tag format (SemVer with leading 'v') before using it anywhere
+          if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$') {
+              throw "[-] Invalid release tag '$tag'. Expected SemVer like v0.1.1 or v0.1.1-alpha."
           }
 
           $zipName = "sarab-$tag-x64.zip"
@@ -174,40 +186,59 @@ jobs:
           "$hash  $zipName" | Out-File -FilePath "SHA256SUMS.txt" -Encoding ascii
           Write-Host "[+] Generated SHA256: $hash  $zipName"
 
-          # Export environment variables for subsequent steps
-          "SARAB_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "SARAB_ZIP=$zipName" | Out-File -FilePath $env:GITHUB_ENV -Append
+          # Stage release assets in one folder so the release job downloads exactly these files
+          New-Item -ItemType Directory -Path "release_assets" -Force | Out-Null
+          Copy-Item $zipName -Destination "release_assets\$zipName"
+          Copy-Item "SHA256SUMS.txt" -Destination "release_assets\SHA256SUMS.txt"
+          Copy-Item "$packageDir\SarabGnss.cer" -Destination "release_assets\SarabGnss.cer"
+
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          "should_release=$shouldRelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sarab-${{ env.SARAB_TAG }}-x64
-          path: |
-            ${{ env.SARAB_ZIP }}
-            SHA256SUMS.txt
+          name: sarab-${{ steps.package.outputs.tag }}-x64
+          path: release_assets/*
           retention-days: 14
 
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: needs.build.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: sarab-${{ needs.build.outputs.tag }}-x64
+          path: release_assets
+
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && github.event.inputs.release_tag != '')
-        shell: pwsh
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          $tag = $env:SARAB_TAG
-          $zip = $env:SARAB_ZIP
-          $isPre = if ($tag -match "alpha|beta|rc") { "--prerelease" } else { "" }
-          Write-Host "[*] Publishing GitHub Release for tag: $tag ..."
+          set -euo pipefail
+          prerelease=()
+          if [[ "$TAG" =~ (alpha|beta|rc) ]]; then
+            prerelease=(--prerelease)
+          fi
+          echo "[*] Publishing GitHub Release for tag: $TAG ..."
 
-          # Check if release exists
-          gh release view $tag -R $env:GITHUB_REPOSITORY 2>$null
-          if ($LASTEXITCODE -eq 0) {
-              Write-Host "[*] Release $tag exists, uploading/updating assets..."
-              gh release upload $tag $zip SHA256SUMS.txt "release_package\SarabGnss.cer" -R $env:GITHUB_REPOSITORY --clobber
-          } else {
-              gh release create $tag $zip SHA256SUMS.txt "release_package\SarabGnss.cer" `
-                  -R $env:GITHUB_REPOSITORY `
-                  --title "Sarab $tag" `
-                  --generate-notes `
-                  $isPre
-          }
-          Write-Host "[+] GitHub Release published successfully: $tag"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "[*] Release $TAG exists, uploading/updating assets..."
+            gh release upload "$TAG" release_assets/* -R "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$TAG" release_assets/* \
+              -R "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "Sarab $TAG" \
+              --generate-notes \
+              "${prerelease[@]}"
+          fi
+          echo "[+] GitHub Release published successfully: $TAG"
