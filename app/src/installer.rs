@@ -20,7 +20,9 @@ pub fn find_driver_files(custom_inf: Option<String>) -> Result<(PathBuf, PathBuf
     } else {
         // Look in executable directory, current directory, or driver/
         let candidates = [
-            std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("SarabGnss.inf"))),
+            std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.join("SarabGnss.inf"))),
             Some(PathBuf::from("SarabGnss.inf")),
             Some(PathBuf::from("driver").join("SarabGnss.inf")),
         ];
@@ -169,14 +171,16 @@ pub fn remove_devices_by_hwid(target_hwid: &str) -> usize {
             )
             .is_ok()
             {
-                let wide_slice: &[u16] = std::slice::from_raw_parts(
-                    buf.as_ptr() as *const u16,
-                    (req_size as usize) / 2,
-                );
+                let wide_slice: &[u16] =
+                    std::slice::from_raw_parts(buf.as_ptr() as *const u16, (req_size as usize) / 2);
                 let hwid_str = String::from_utf16_lossy(wide_slice);
-                if hwid_str.to_lowercase().contains(&target_hwid.to_lowercase()) {
+                if hwid_str
+                    .to_lowercase()
+                    .contains(&target_hwid.to_lowercase())
+                {
                     println!("[+] Removing device: {}", hwid_str.trim_matches('\0'));
-                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&mut dev_data)).is_ok() {
+                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&mut dev_data)).is_ok()
+                    {
                         removed_count += 1;
                         was_removed = true;
                     }
@@ -275,7 +279,10 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
 
         if create_res.is_err() {
             let _ = SetupDiDestroyDeviceInfoList(dev_info);
-            return Err(anyhow::anyhow!("SetupDiCreateDeviceInfoW failed: {:?}", create_res));
+            return Err(anyhow::anyhow!(
+                "SetupDiCreateDeviceInfoW failed: {:?}",
+                create_res
+            ));
         }
 
         // Set HardwareID property: REG_MULTI_SZ "Root\SarabGnss\0\0"
@@ -295,7 +302,10 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
         );
         if prop_res.is_err() {
             let _ = SetupDiDestroyDeviceInfoList(dev_info);
-            return Err(anyhow::anyhow!("SetupDiSetDeviceRegistryPropertyW failed: {:?}", prop_res));
+            return Err(anyhow::anyhow!(
+                "SetupDiSetDeviceRegistryPropertyW failed: {:?}",
+                prop_res
+            ));
         }
 
         let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&mut dev_data));
@@ -308,7 +318,10 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
 
         // 4. Update and install driver for the registered PnP device
         println!("[*] Installing and binding UMDF driver to virtual device...");
-        let wide_hwid: Vec<u16> = HARDWARE_ID.encode_utf16().chain(std::iter::once(0)).collect();
+        let wide_hwid: Vec<u16> = HARDWARE_ID
+            .encode_utf16()
+            .chain(std::iter::once(0))
+            .collect();
         let mut reboot_required = BOOL(0);
 
         let update_res = UpdateDriverForPlugAndPlayDevicesW(
@@ -320,7 +333,10 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
         );
 
         if update_res.is_err() {
-            println!("[-] UpdateDriverForPlugAndPlayDevicesW notice: {:?}. Triggering PnP scan...", update_res);
+            println!(
+                "[-] UpdateDriverForPlugAndPlayDevicesW notice: {:?}. Triggering PnP scan...",
+                update_res
+            );
             let _ = std::process::Command::new("pnputil")
                 .args(["/scan-devices"])
                 .output();
@@ -343,7 +359,10 @@ pub fn uninstall_driver_device() -> Result<()> {
     if removed_count == 0 {
         println!("[-] No registered Sarab Virtual GNSS devices found.");
     } else {
-        println!("[+] Successfully removed {} device instance(s).", removed_count);
+        println!(
+            "[+] Successfully removed {} device instance(s).",
+            removed_count
+        );
     }
 
     // Clean up INF from driver store via pnputil

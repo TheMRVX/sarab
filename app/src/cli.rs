@@ -4,7 +4,7 @@ use clap::{Args, Parser, Subcommand};
 #[command(
     name = "sarab",
     author = "TheMRVX",
-    version = "0.1.0",
+    version,
     about = "Sarab (Mirage) — High-precision GPS location spoofer for Windows 10/11",
     long_about = "Sarab feeds arbitrary GPS coordinates directly into the Windows Location API via a virtual GNSS sensor driver."
 )]
@@ -44,7 +44,7 @@ pub struct SetArgs {
     pub lat: f64,
 
     /// Longitude in decimal degrees (-180.0 to 180.0)
-    #[arg(short, long)]
+    #[arg(short = 'o', long)]
     pub lon: f64,
 
     /// Altitude in meters above sea level (default: 0.0)

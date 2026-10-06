@@ -35,7 +35,10 @@ pub fn check_location_privacy_consent() -> (bool, String) {
                     .to_string();
                 let _ = RegCloseKey(hkey);
                 if val_str.eq_ignore_ascii_case("Deny") {
-                    return (false, "Denied (System Master Switch in Settings is OFF)".to_string());
+                    return (
+                        false,
+                        "Denied (System Master Switch in Settings is OFF)".to_string(),
+                    );
                 }
             } else {
                 let _ = RegCloseKey(hkey);
@@ -63,7 +66,10 @@ pub fn check_location_privacy_consent() -> (bool, String) {
                     .to_string();
                 let _ = RegCloseKey(hkey_user);
                 if val_str.eq_ignore_ascii_case("Deny") {
-                    return (false, "Denied (User Location Access in Settings is OFF)".to_string());
+                    return (
+                        false,
+                        "Denied (User Location Access in Settings is OFF)".to_string(),
+                    );
                 }
             } else {
                 let _ = RegCloseKey(hkey_user);
@@ -90,7 +96,9 @@ pub fn read_windows_location() -> Result<()> {
     // 1. Check Windows Privacy Consent first
     let (privacy_ok, privacy_reason) = check_location_privacy_consent();
     if !privacy_ok {
-        println!("\n[!] WARNING: Windows Location Services are currently DISABLED in Privacy Settings!");
+        println!(
+            "\n[!] WARNING: Windows Location Services are currently DISABLED in Privacy Settings!"
+        );
         println!("    Status: {}", privacy_reason);
         println!("    To enable:");
         println!("    1. Open Windows Settings (Win + I) -> Privacy & Security -> Location.");
@@ -123,21 +131,27 @@ pub fn read_windows_location() -> Result<()> {
     // 2. Retry loop for warming up driver/service if Initializing or NoData
     let mut attempts = 0;
     let max_attempts = 5;
-    while (status == PositionStatus::Initializing || status == PositionStatus::NoData) && attempts < max_attempts {
+    while (status == PositionStatus::Initializing || status == PositionStatus::NoData)
+        && attempts < max_attempts
+    {
         attempts += 1;
         println!(
             "[*] Sensor pipeline initializing... waiting for GPS fix (attempt {}/{})...",
             attempts, max_attempts
         );
         thread::sleep(Duration::from_millis(1000));
-        status = geolocator.LocationStatus().unwrap_or(PositionStatus::NotAvailable);
+        status = geolocator
+            .LocationStatus()
+            .unwrap_or(PositionStatus::NotAvailable);
     }
 
     println!("[*] Active Location Status: {:?}", status);
 
     // Request fresh fix with zero max-age (bypass stale IP cache) and 15s timeout
     let max_age = windows::Foundation::TimeSpan { Duration: 0 };
-    let timeout = windows::Foundation::TimeSpan { Duration: 150_000_000 };
+    let timeout = windows::Foundation::TimeSpan {
+        Duration: 150_000_000,
+    };
 
     let async_op = geolocator
         .GetGeopositionAsyncWithAgeAndTimeout(max_age, timeout)
@@ -147,9 +161,12 @@ pub fn read_windows_location() -> Result<()> {
             e
         ))?;
 
-    let position = async_op
-        .get()
-        .map_err(|e| anyhow::anyhow!("Failed to retrieve Geoposition from Windows Location: {:?}", e))?;
+    let position = async_op.get().map_err(|e| {
+        anyhow::anyhow!(
+            "Failed to retrieve Geoposition from Windows Location: {:?}",
+            e
+        )
+    })?;
 
     let coordinate = position
         .Coordinate()
@@ -188,6 +205,8 @@ pub fn read_windows_location() -> Result<()> {
 
 #[cfg(not(windows))]
 pub fn read_windows_location() -> Result<()> {
-    println!("[*] Simulated Location: Lat: 35.6997000°, Lon: 51.3380000°, Alt: 1200.00 m, Acc: 5.0 m");
+    println!(
+        "[*] Simulated Location: Lat: 35.6997000°, Lon: 51.3380000°, Alt: 1200.00 m, Acc: 5.0 m"
+    );
     Ok(())
 }

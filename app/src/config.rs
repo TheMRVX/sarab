@@ -29,10 +29,16 @@ pub fn validate_coordinates(lat: f64, lon: f64, _alt: f64, acc: f64) -> Result<(
         bail!("Invalid latitude: {} (must be between -90.0 and 90.0)", lat);
     }
     if !(-180.0..=180.0).contains(&lon) {
-        bail!("Invalid longitude: {} (must be between -180.0 and 180.0)", lon);
+        bail!(
+            "Invalid longitude: {} (must be between -180.0 and 180.0)",
+            lon
+        );
     }
     if acc <= 0.0 {
-        bail!("Invalid accuracy: {} (must be greater than 0.0 meters)", acc);
+        bail!(
+            "Invalid accuracy: {} (must be greater than 0.0 meters)",
+            acc
+        );
     }
     Ok(())
 }
@@ -50,8 +56,8 @@ pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    let data = toml::to_string_pretty(config)
-        .context("Failed to serialize configuration to TOML")?;
+    let data =
+        toml::to_string_pretty(config).context("Failed to serialize configuration to TOML")?;
     fs::write(&path, data)
         .with_context(|| format!("Failed to write configuration file to {:?}", path))?;
     Ok(())

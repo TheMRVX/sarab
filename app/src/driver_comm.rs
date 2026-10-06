@@ -28,19 +28,24 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
             None,
         );
         if status.is_err() {
-            return Err(anyhow::anyhow!("Failed to open/create driver registry key: {:?}", status));
+            return Err(anyhow::anyhow!(
+                "Failed to open/create driver registry key: {:?}",
+                status
+            ));
         }
 
         let write_string_val = |hkey: HKEY, name: &str, val: &str| -> Result<()> {
             let h_name = HSTRING::from(name);
             let wide_val: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
-            let slice = std::slice::from_raw_parts(
-                wide_val.as_ptr() as *const u8,
-                wide_val.len() * 2,
-            );
+            let slice =
+                std::slice::from_raw_parts(wide_val.as_ptr() as *const u8, wide_val.len() * 2);
             let res = RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice));
             if res.0 != 0 {
-                return Err(anyhow::anyhow!("Failed to set registry value '{}': error code {}", name, res.0));
+                return Err(anyhow::anyhow!(
+                    "Failed to set registry value '{}': error code {}",
+                    name,
+                    res.0
+                ));
             }
             Ok(())
         };
@@ -55,7 +60,10 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
         let h_enabled = HSTRING::from("Enabled");
         let res = RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes));
         if res.0 != 0 {
-            return Err(anyhow::anyhow!("Failed to set 'Enabled' registry value: error code {}", res.0));
+            return Err(anyhow::anyhow!(
+                "Failed to set 'Enabled' registry value: error code {}",
+                res.0
+            ));
         }
 
         let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
@@ -77,7 +85,10 @@ pub fn set_driver_enabled(enabled: bool) -> Result<()> {
     unsafe {
         let status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, &subkey, 0, KEY_SET_VALUE, &mut hkey);
         if status.is_err() {
-            return Err(anyhow::anyhow!("Driver registry key not found (is driver installed?): {:?}", status));
+            return Err(anyhow::anyhow!(
+                "Driver registry key not found (is driver installed?): {:?}",
+                status
+            ));
         }
 
         let enabled_dw: u32 = if enabled { 1 } else { 0 };
@@ -85,7 +96,10 @@ pub fn set_driver_enabled(enabled: bool) -> Result<()> {
         let h_enabled = HSTRING::from("Enabled");
         let res = RegSetValueExW(hkey, &h_enabled, 0, REG_DWORD, Some(&dw_bytes));
         if res.0 != 0 {
-            return Err(anyhow::anyhow!("Failed to set 'Enabled' value: error code {}", res.0));
+            return Err(anyhow::anyhow!(
+                "Failed to set 'Enabled' value: error code {}",
+                res.0
+            ));
         }
 
         let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
@@ -124,7 +138,11 @@ pub fn get_driver_parameters() -> Result<SpoofConfig> {
             );
             if res.is_ok() {
                 let len = (size as usize) / 2;
-                let trimmed_len = if len > 0 && buf[len - 1] == 0 { len - 1 } else { len };
+                let trimmed_len = if len > 0 && buf[len - 1] == 0 {
+                    len - 1
+                } else {
+                    len
+                };
                 Some(String::from_utf16_lossy(&buf[..trimmed_len]))
             } else {
                 None
