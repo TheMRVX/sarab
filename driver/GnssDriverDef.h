@@ -8,6 +8,13 @@
 #include <initguid.h>
 
 //
+// Windows GNSS Adapter PnP Device Interface GUID (monitored by LocationFramework.dll):
+// {3336E5E4-018A-4669-84C5-BD05F3BD368B}
+//
+DEFINE_GUID(GUID_DEVINTERFACE_GNSS_ADAPTER,
+    0x3336e5e4, 0x018a, 0x4669, 0x84, 0xc5, 0xbd, 0x05, 0xf3, 0xbd, 0x36, 0x8b);
+
+//
 // Windows GNSS Device Interface GUID:
 // {33DE93A2-0199-4A73-B561-8CE1F84033FF}
 //

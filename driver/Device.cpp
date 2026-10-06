@@ -31,11 +31,15 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
     deviceContext->TimeBetweenFixes = 1000;
     deviceContext->FixSequenceNumber = 0;
 
-    // Create device interface for Windows Location Framework (lfsvc)
+    // Create device interfaces for Windows Location Framework (lfsvc)
+    status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNSS_ADAPTER, NULL);
+    if (!NT_SUCCESS(status)) {
+        TraceEvents(0, 0, "WdfDeviceCreateDeviceInterface (GNSS_ADAPTER) failed: 0x%08X", status);
+    }
+
     status = WdfDeviceCreateDeviceInterface(device, &GUID_DEVINTERFACE_GNSS, NULL);
     if (!NT_SUCCESS(status)) {
-        TraceEvents(0, 0, "WdfDeviceCreateDeviceInterface failed: 0x%08X", status);
-        return status;
+        TraceEvents(0, 0, "WdfDeviceCreateDeviceInterface (GNSS) failed: 0x%08X", status);
     }
 
     // Create symbolic link \\.\GnssDriver for Windows LocationGnssAdapter
