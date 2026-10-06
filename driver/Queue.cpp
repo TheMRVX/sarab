@@ -56,12 +56,24 @@ VOID SarabEvtIoDeviceControl(
             RtlZeroMemory(pCaps, sizeof(GNSS_DEVICE_CAPABILITY));
             pCaps->Size = sizeof(GNSS_DEVICE_CAPABILITY);
             pCaps->Version = GNSS_DRIVER_VERSION_1;
-            pCaps->SupportMultipleFixSessions = FALSE;
-            pCaps->SupportLBS = TRUE;
+            pCaps->SupportMultipleFixSessions = TRUE;
+            pCaps->SupportMultipleAppSessions = TRUE;
+            pCaps->RequireAGnssInjection = FALSE;
+            pCaps->AgnssFormatSupported = 0;
+            pCaps->AgnssFormatPreferred = 0;
             pCaps->SupportDistanceTracking = FALSE;
             pCaps->SupportContinuousTracking = TRUE;
-            pCaps->SupportGeofencing = FALSE;
-            pCaps->SupportBreadcrumbing = FALSE;
+            pCaps->GeofencingSupport = 0;
+            pCaps->SupportCpLocation = FALSE;
+            pCaps->SupportUplV2 = FALSE;
+            pCaps->SupportSuplV1 = FALSE;
+            pCaps->SupportSuplV2 = FALSE;
+            pCaps->SupportedSuplVersion.MajorVersion = 0;
+            pCaps->SupportedSuplVersion.MinorVersion = 0;
+            pCaps->MaxGeofencesSupported = 0;
+            pCaps->SupportMultipleSuplRootCert = FALSE;
+            pCaps->GnssBreadCrumbPayloadVersion = 0;
+            pCaps->MaxGnssBreadCrumbFixes = 0;
             bytesReturned = sizeof(GNSS_DEVICE_CAPABILITY);
             status = STATUS_SUCCESS;
         }
@@ -88,7 +100,11 @@ VOID SarabEvtIoDeviceControl(
             deviceContext->ActiveSessionID = pParam->FixSessionID;
             deviceContext->SessionType = pParam->SessionType;
             deviceContext->SessionActive = TRUE;
-            deviceContext->TimeBetweenFixes = (pParam->TimeBetweenFixes > 0) ? pParam->TimeBetweenFixes : 1000;
+            ULONG interval = 1000;
+            if (pParam->SessionType == GNSS_FixSession_ContinuousTracking && pParam->ContinuousParam.PreferredInterval > 0) {
+                interval = pParam->ContinuousParam.PreferredInterval;
+            }
+            deviceContext->TimeBetweenFixes = interval;
             deviceContext->FixSequenceNumber = 0;
             LoadSpoofConfigFromRegistry(&deviceContext->Config);
             WdfWaitLockRelease(deviceContext->Lock);
@@ -112,8 +128,8 @@ VOID SarabEvtIoDeviceControl(
         status = WdfRequestRetrieveInputBuffer(Request, sizeof(GNSS_FIXSESSION_PARAM), (PVOID*)&pParam, &bufferSize);
         if (NT_SUCCESS(status) && pParam != NULL) {
             WdfWaitLockAcquire(deviceContext->Lock, NULL);
-            if (pParam->TimeBetweenFixes > 0) {
-                deviceContext->TimeBetweenFixes = pParam->TimeBetweenFixes;
+            if (pParam->SessionType == GNSS_FixSession_ContinuousTracking && pParam->ContinuousParam.PreferredInterval > 0) {
+                deviceContext->TimeBetweenFixes = pParam->ContinuousParam.PreferredInterval;
             }
             WdfWaitLockRelease(deviceContext->Lock);
             status = STATUS_SUCCESS;
@@ -153,6 +169,21 @@ VOID SarabEvtIoDeviceControl(
                 WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(5));
             }
             WdfWaitLockRelease(deviceContext->Lock);
+        }
+        break;
+    }
+
+    case IOCTL_GNSS_LISTEN_AGNSS:
+    case IOCTL_GNSS_LISTEN_ERROR:
+    case IOCTL_GNSS_LISTEN_NI:
+    case IOCTL_GNSS_LISTEN_NMEA:
+    case IOCTL_GNSS_LISTEN_DRIVER_REQUEST:
+    {
+        // Forward listener requests to the dedicated manual queue so they stay pending
+        status = WdfRequestForwardToIoQueue(Request, deviceContext->ListenQueue);
+        if (!NT_SUCCESS(status)) {
+            TraceEvents(0, 0, "Forward to ListenQueue failed: 0x%08X", status);
+            WdfRequestComplete(Request, status);
         }
         break;
     }

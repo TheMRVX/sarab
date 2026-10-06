@@ -101,6 +101,12 @@ pub fn read_windows_location() -> Result<()> {
     let geolocator = Geolocator::new()
         .map_err(|e| anyhow::anyhow!("Failed to instantiate Geolocator: {:?}", e))?;
 
+    // Force GNSS hardware engine activation instead of IP/Wi-Fi fallback
+    use windows::Devices::Geolocation::{PositionAccuracy, PositionSource};
+    if let Err(e) = geolocator.SetDesiredAccuracy(PositionAccuracy::High) {
+        eprintln!("[!] Warning: Could not set PositionAccuracy::High: {:?}", e);
+    }
+
     let mut status = geolocator
         .LocationStatus()
         .map_err(|e| anyhow::anyhow!("Failed to query LocationStatus: {:?}", e))?;
@@ -129,7 +135,13 @@ pub fn read_windows_location() -> Result<()> {
 
     println!("[*] Active Location Status: {:?}", status);
 
-    let async_op = geolocator.GetGeopositionAsync()
+    // Request fresh fix with zero max-age (bypass stale IP cache) and 15s timeout
+    let max_age = windows::Foundation::TimeSpan { Duration: 0 };
+    let timeout = windows::Foundation::TimeSpan { Duration: 150_000_000 };
+
+    let async_op = geolocator
+        .GetGeopositionAsyncWithAgeAndTimeout(max_age, timeout)
+        .or_else(|_| geolocator.GetGeopositionAsync())
         .map_err(|e| anyhow::anyhow!(
             "GetGeopositionAsync failed (ensure Virtual GNSS driver is active and Location Services are ON): {:?}",
             e
@@ -152,12 +164,23 @@ pub fn read_windows_location() -> Result<()> {
         .map_err(|e| anyhow::anyhow!("Failed to retrieve BasicGeoposition: {:?}", e))?;
 
     let accuracy = coordinate.Accuracy().unwrap_or(0.0);
+    let source_str = match coordinate.PositionSource() {
+        Ok(PositionSource(0)) => "Cellular",
+        Ok(PositionSource(1)) => "Satellite (GNSS / GPS)",
+        Ok(PositionSource(2)) => "WiFi",
+        Ok(PositionSource(3)) => "IPAddress",
+        Ok(PositionSource(4)) => "Unknown",
+        Ok(PositionSource(5)) => "Default",
+        Ok(PositionSource(6)) => "Obfuscated",
+        _ => "Unspecified",
+    };
 
     println!("\n=== Windows Live Location Report ===");
     println!("Latitude:   {:.7}°", pos.Latitude);
     println!("Longitude:  {:.7}°", pos.Longitude);
     println!("Altitude:   {:.2} m", pos.Altitude);
     println!("Accuracy:   {:.1} m", accuracy);
+    println!("Source:     {}", source_str);
     println!("====================================\n");
 
     Ok(())

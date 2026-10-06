@@ -38,6 +38,13 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
         return status;
     }
 
+    // Create symbolic link \\.\GnssDriver for Windows LocationGnssAdapter
+    DECLARE_CONST_UNICODE_STRING(dosDeviceName, L"\\DosDevices\\Global\\GnssDriver");
+    status = WdfDeviceCreateSymbolicLink(device, &dosDeviceName);
+    if (!NT_SUCCESS(status)) {
+        TraceEvents(0, 0, "WdfDeviceCreateSymbolicLink failed: 0x%08X", status);
+    }
+
     // Create WaitLock for context synchronization
     WDF_OBJECT_ATTRIBUTES lockAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&lockAttributes);
@@ -58,6 +65,13 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
     status = WdfIoQueueCreate(device, &manualQueueConfig, &queueAttributes, &deviceContext->FixDataQueue);
     if (!NT_SUCCESS(status)) {
         TraceEvents(0, 0, "WdfIoQueueCreate for manual fix queue failed: 0x%08X", status);
+        return status;
+    }
+
+    // Create manual queue for holding pending listener IOCTLs (ERROR, AGNSS, NI, NMEA, DRIVER_REQUEST)
+    status = WdfIoQueueCreate(device, &manualQueueConfig, &queueAttributes, &deviceContext->ListenQueue);
+    if (!NT_SUCCESS(status)) {
+        TraceEvents(0, 0, "WdfIoQueueCreate for listen queue failed: 0x%08X", status);
         return status;
     }
 

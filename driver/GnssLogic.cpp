@@ -67,7 +67,7 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
         config->Latitude, config->Longitude, config->Altitude, config->Accuracy, config->Enabled);
 }
 
-NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSION_TYPE SessionType, const SpoofConfig* config)
+NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config)
 {
     PGNSS_FIXDATA pFixData = NULL;
     size_t outBufferSize = 0;
@@ -90,12 +90,10 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     pFixData->Size = sizeof(GNSS_FIXDATA);
     pFixData->Version = GNSS_DRIVER_VERSION_1;
     pFixData->FixSessionID = FixSessionID;
-    pFixData->FixStatus = STATUS_SUCCESS;
-    // For continuous tracking, IsFinalFix MUST be FALSE so Windows Location Service keeps listening.
-    // Setting IsFinalFix = TRUE on a continuous session signals termination and causes fallback to IP/Wi-Fi.
-    pFixData->IsFinalFix = (SessionType == GNSS_FixSession_SingleShot);
     GetSystemTimeAsFileTime(&pFixData->FixTimeStamp);
-    pFixData->FixLevelOfDetails = GNSS_FIXDETAIL_BASIC | GNSS_FIXDETAIL_ACCURACY;
+    pFixData->IsFinalFix = (SessionType == GNSS_FixSession_SingleShot);
+    pFixData->FixStatus = STATUS_SUCCESS;
+    pFixData->FixLevelOfDetails = GNSS_FIXDETAIL_BASIC | GNSS_FIXDETAIL_ACCURACY | GNSS_FIXDETAIL_SATELLITE;
 
     // Basic fix data
     pFixData->BasicData.Size = sizeof(GNSS_FIXDATA_BASIC);
@@ -111,6 +109,23 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     pFixData->AccuracyData.Version = GNSS_DRIVER_VERSION_1;
     pFixData->AccuracyData.HorizontalAccuracy = config->Accuracy;
     pFixData->AccuracyData.AltitudeAccuracy = config->Accuracy;
+    pFixData->AccuracyData.HorizontalConfidence = 95;
+    pFixData->AccuracyData.AltitudeConfidence = 95;
+    pFixData->AccuracyData.PositionDilutionOfPrecision = 1.0f;
+    pFixData->AccuracyData.HorizontalDilutionOfPrecision = 1.0f;
+    pFixData->AccuracyData.VerticalDilutionOfPrecision = 1.0f;
+
+    // Satellite telemetry data (simulate 4 locked GPS satellites)
+    pFixData->SatelliteData.Size = sizeof(GNSS_FIXDATA_SATELLITE);
+    pFixData->SatelliteData.Version = GNSS_DRIVER_VERSION_1;
+    pFixData->SatelliteData.SatelliteCount = 4;
+    for (ULONG i = 0; i < 4; i++) {
+        pFixData->SatelliteData.SatelliteArray[i].SatelliteId = i + 1;
+        pFixData->SatelliteData.SatelliteArray[i].UsedInPositiong = TRUE;
+        pFixData->SatelliteData.SatelliteArray[i].Elevation = 45.0 + i * 10.0;
+        pFixData->SatelliteData.SatelliteArray[i].Azimuth = 90.0 + i * 45.0;
+        pFixData->SatelliteData.SatelliteArray[i].SignalToNoiseRatio = 38.0;
+    }
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_FIXDATA));
     TraceEvents(0, 0, "Completed fix for Session %u (Type=%d, Final=%d): Lat=%.6f Lon=%.6f Acc=%u",
