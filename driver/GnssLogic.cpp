@@ -69,12 +69,13 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
 
 NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config)
 {
-    PGNSS_FIXDATA pFixData = NULL;
+    PGNSS_EVENT pEvent = NULL;
     size_t outBufferSize = 0;
 
-    NTSTATUS status = WdfRequestRetrieveOutputBuffer(Request, sizeof(GNSS_FIXDATA), (PVOID*)&pFixData, &outBufferSize);
-    if (!NT_SUCCESS(status) || pFixData == NULL) {
-        TraceEvents(0, 0, "WdfRequestRetrieveOutputBuffer failed: 0x%08X", status);
+    NTSTATUS status = WdfRequestRetrieveOutputBuffer(Request, sizeof(GNSS_EVENT), (PVOID*)&pEvent, &outBufferSize);
+    if (!NT_SUCCESS(status) || pEvent == NULL) {
+        TraceEvents(0, 0, "WdfRequestRetrieveOutputBuffer failed: 0x%08X (buffer size: %Iu, expected: %Iu)",
+            status, outBufferSize, sizeof(GNSS_EVENT));
         WdfRequestComplete(Request, status);
         return status;
     }
@@ -85,8 +86,14 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
         return STATUS_UNSUCCESSFUL;
     }
 
-    RtlZeroMemory(pFixData, sizeof(GNSS_FIXDATA));
+    RtlZeroMemory(pEvent, sizeof(GNSS_EVENT));
 
+    pEvent->Size = sizeof(GNSS_EVENT);
+    pEvent->Version = GNSS_DRIVER_VERSION_1;
+    pEvent->EventType = GNSS_Event_FixAvailable;
+    pEvent->EventDataSize = sizeof(GNSS_FIXDATA);
+
+    PGNSS_FIXDATA pFixData = &pEvent->FixData;
     pFixData->Size = sizeof(GNSS_FIXDATA);
     pFixData->Version = GNSS_DRIVER_VERSION_1;
     pFixData->FixSessionID = FixSessionID;
@@ -127,8 +134,8 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
         pFixData->SatelliteData.SatelliteArray[i].SignalToNoiseRatio = 38.0;
     }
 
-    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_FIXDATA));
-    TraceEvents(0, 0, "Completed fix for Session %u (Type=%d, Final=%d): Lat=%.6f Lon=%.6f Acc=%u",
+    WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_EVENT));
+    TraceEvents(0, 0, "Completed GNSS_EVENT Fix for Session %u (Type=%d, Final=%d): Lat=%.6f Lon=%.6f Acc=%u",
         FixSessionID, (int)SessionType, (int)pFixData->IsFinalFix, config->Latitude, config->Longitude, config->Accuracy);
 
     return STATUS_SUCCESS;

@@ -248,3 +248,35 @@ typedef struct {
     GNSS_FIXDATA_ACCURACY AccuracyData;
     GNSS_FIXDATA_SATELLITE SatelliteData;
 } GNSS_FIXDATA, *PGNSS_FIXDATA;
+
+//
+// GNSS Event Types and Structures
+//
+typedef enum {
+    GNSS_Event_FixAvailable = 1,
+    GNSS_Event_RequireAgnss = 2,
+    GNSS_Event_Error = 3,
+    GNSS_Event_NiRequest = 4,
+    GNSS_Event_NmeaData = 5,
+    GNSS_Event_GeofenceAlertData = 6,
+    GNSS_Event_GeofencesTrackingStatus = 7,
+    GNSS_Event_DriverRequest = 8,
+    GNSS_Event_BreadcrumbAlertEvent = 9,
+    GNSS_Event_FixAvailable_2 = 10,
+    GNSS_Event_Custom = 0x8000
+} GNSS_EVENT_TYPE;
+
+//
+// GNSS Event Structure (Size: 2736 = 0xAB0)
+// Passed from driver to GNSS adapter upon completing IOCTL_GNSS_GET_FIXDATA
+//
+typedef struct {
+    ULONG           Size;
+    ULONG           Version;
+    GNSS_EVENT_TYPE EventType;
+    ULONG           EventDataSize;
+    BYTE            Unused[512];
+    union {
+        GNSS_FIXDATA FixData;
+    };
+} GNSS_EVENT, *PGNSS_EVENT;
