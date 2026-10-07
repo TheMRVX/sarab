@@ -54,6 +54,7 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
         write_string_val(hkey, "Longitude", &format!("{:.7}", config.lon))?;
         write_string_val(hkey, "Altitude", &format!("{:.2}", config.alt))?;
         write_string_val(hkey, "Accuracy", &format!("{:.1}", config.acc))?;
+        write_string_val(hkey, "DriftRadius", &format!("{:.2}", config.drift_radius))?;
 
         let enabled_dw: u32 = if config.enabled { 1 } else { 0 };
         let dw_bytes = enabled_dw.to_ne_bytes();
@@ -65,6 +66,11 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
                 res.0
             ));
         }
+
+        let drift_dw: u32 = if config.drift_enabled { 1 } else { 0 };
+        let drift_bytes = drift_dw.to_ne_bytes();
+        let h_drift = HSTRING::from("DriftEnabled");
+        let _ = RegSetValueExW(hkey, &h_drift, 0, REG_DWORD, Some(&drift_bytes));
 
         let _ = windows::Win32::System::Registry::RegCloseKey(hkey);
     }
@@ -174,6 +180,22 @@ pub fn get_driver_parameters() -> Result<SpoofConfig> {
             Some(&mut dw_size),
         );
 
+        let mut dw_drift: u32 = 1;
+        let mut dw_drift_size = std::mem::size_of::<u32>() as u32;
+        let h_drift = HSTRING::from("DriftEnabled");
+        let _ = RegQueryValueExW(
+            hkey,
+            &h_drift,
+            None,
+            None,
+            Some(&mut dw_drift as *mut u32 as *mut u8),
+            Some(&mut dw_drift_size),
+        );
+
+        let drift_radius = read_string_val(hkey, "DriftRadius")
+            .and_then(|s| s.parse::<f64>().ok())
+            .unwrap_or(1.2);
+
         let _ = RegCloseKey(hkey);
 
         Ok(SpoofConfig {
@@ -182,6 +204,8 @@ pub fn get_driver_parameters() -> Result<SpoofConfig> {
             alt,
             acc,
             enabled: dw_enabled != 0,
+            drift_enabled: dw_drift != 0,
+            drift_radius,
         })
     }
 }

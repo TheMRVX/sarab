@@ -71,6 +71,8 @@ HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Longitude",0x000000
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Altitude",0x00000000,"1200.0"
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Accuracy",0x00000000,"5.0"
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Enabled",0x00010001,1
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"DriftEnabled",0x00010001,1
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"DriftRadius",0x00000000,"1.2"
 
 ; ================= Strings =====================
 

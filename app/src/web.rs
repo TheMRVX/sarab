@@ -19,6 +19,18 @@ pub struct WebSpoofConfig {
     pub altitude: f64,
     pub accuracy: f64,
     pub enabled: bool,
+    #[serde(default = "default_drift_enabled", rename = "driftEnabled")]
+    pub drift_enabled: bool,
+    #[serde(default = "default_drift_radius", rename = "driftRadius")]
+    pub drift_radius: f64,
+}
+
+fn default_drift_enabled() -> bool {
+    true
+}
+
+fn default_drift_radius() -> f64 {
+    1.2
 }
 
 impl From<SpoofConfig> for WebSpoofConfig {
@@ -29,6 +41,8 @@ impl From<SpoofConfig> for WebSpoofConfig {
             altitude: c.alt,
             accuracy: c.acc,
             enabled: c.enabled,
+            drift_enabled: c.drift_enabled,
+            drift_radius: c.drift_radius,
         }
     }
 }
@@ -41,6 +55,8 @@ impl From<WebSpoofConfig> for SpoofConfig {
             alt: w.altitude,
             acc: w.accuracy,
             enabled: w.enabled,
+            drift_enabled: w.drift_enabled,
+            drift_radius: w.drift_radius,
         }
     }
 }
@@ -164,6 +180,18 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                                 web_cfg.altitude,
                                 web_cfg.accuracy,
                             ) {
+                                let err_resp = Response::from_string(format!(
+                                    "{{\"error\":\"{}\"}}",
+                                    e
+                                ))
+                                .with_status_code(StatusCode(400))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                                let _ = request.respond(err_resp);
+                                continue;
+                            }
+
+                            if let Err(e) = crate::config::validate_drift(web_cfg.drift_radius) {
                                 let err_resp = Response::from_string(format!(
                                     "{{\"error\":\"{}\"}}",
                                     e
@@ -364,6 +392,8 @@ mod tests {
             alt: 1200.0,
             acc: 5.0,
             enabled: true,
+            drift_enabled: true,
+            drift_radius: 1.5,
         };
 
         let web_cfg = WebSpoofConfig::from(original.clone());
@@ -372,6 +402,8 @@ mod tests {
         assert_eq!(web_cfg.altitude, original.alt);
         assert_eq!(web_cfg.accuracy, original.acc);
         assert_eq!(web_cfg.enabled, original.enabled);
+        assert_eq!(web_cfg.drift_enabled, original.drift_enabled);
+        assert_eq!(web_cfg.drift_radius, original.drift_radius);
 
         let back = SpoofConfig::from(web_cfg);
         assert_eq!(original, back);
@@ -384,7 +416,9 @@ mod tests {
             "longitude": 51.6775,
             "altitude": 1570.0,
             "accuracy": 3.0,
-            "enabled": true
+            "enabled": true,
+            "driftEnabled": true,
+            "driftRadius": 2.0
         }"#;
 
         let parsed: WebSpoofConfig = serde_json::from_str(json_input).unwrap();
@@ -393,6 +427,8 @@ mod tests {
         assert_eq!(parsed.altitude, 1570.0);
         assert_eq!(parsed.accuracy, 3.0);
         assert!(parsed.enabled);
+        assert!(parsed.drift_enabled);
+        assert_eq!(parsed.drift_radius, 2.0);
     }
 }
 

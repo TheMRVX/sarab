@@ -8,6 +8,8 @@ struct SpoofConfig {
     double Altitude;
     ULONG  Accuracy;
     BOOL   Enabled;
+    BOOL   DriftEnabled;
+    double DriftRadiusMeters;
 };
 
 // Reads the current configuration from registry parameters
