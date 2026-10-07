@@ -45,6 +45,13 @@ driver/package/
 .env.*
 *.secret
 *.local
+app/config.toml
+config.toml
+
+# Node & GUI Dependencies
+gui/node_modules/
+gui/.env*
+gui/npm-debug.log*
 
 # OS Metadata
 .DS_Store
