@@ -85,32 +85,34 @@ pub fn check_location_privacy_consent() -> (bool, String) {
     (true, "Allowed (Simulated)".to_string())
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct LiveLocationReport {
+    pub latitude: f64,
+    pub longitude: f64,
+    pub altitude: f64,
+    pub accuracy: f64,
+    pub source: String,
+    pub timestamp: String,
+}
+
 #[cfg(windows)]
-pub fn read_windows_location() -> Result<()> {
+pub fn query_live_location() -> Result<LiveLocationReport> {
     use std::thread;
     use std::time::Duration;
-    use windows::Devices::Geolocation::{Geolocator, PositionStatus};
-
-    println!("[*] Querying Windows Location Service (Windows.Devices.Geolocation)...");
+    use windows::Devices::Geolocation::{Geolocator, PositionAccuracy, PositionSource, PositionStatus};
 
     // 1. Check Windows Privacy Consent first
     let (privacy_ok, privacy_reason) = check_location_privacy_consent();
     if !privacy_ok {
-        println!(
-            "\n[!] WARNING: Windows Location Services are currently DISABLED in Privacy Settings!"
+        eprintln!(
+            "\n[!] WARNING: Windows Location Services are currently DISABLED in Privacy Settings!\n    Status: {}",
+            privacy_reason
         );
-        println!("    Status: {}", privacy_reason);
-        println!("    To enable:");
-        println!("    1. Open Windows Settings (Win + I) -> Privacy & Security -> Location.");
-        println!("    2. Turn ON 'Location services'.");
-        println!("    3. Turn ON 'Let desktop apps access your location'.\n");
     }
 
     let geolocator = Geolocator::new()
         .map_err(|e| anyhow::anyhow!("Failed to instantiate Geolocator: {:?}", e))?;
 
-    // Force GNSS hardware engine activation instead of IP/Wi-Fi fallback
-    use windows::Devices::Geolocation::{PositionAccuracy, PositionSource};
     if let Err(e) = geolocator.SetDesiredAccuracy(PositionAccuracy::High) {
         eprintln!("[!] Warning: Could not set PositionAccuracy::High: {:?}", e);
     }
@@ -119,8 +121,6 @@ pub fn read_windows_location() -> Result<()> {
         .LocationStatus()
         .map_err(|e| anyhow::anyhow!("Failed to query LocationStatus: {:?}", e))?;
 
-    println!("[*] Initial Location Status: {:?}", status);
-
     if status == PositionStatus::Disabled {
         return Err(anyhow::anyhow!(
             "Windows Location Services are disabled in Windows Settings.\n\
@@ -128,26 +128,18 @@ pub fn read_windows_location() -> Result<()> {
         ));
     }
 
-    // 2. Retry loop for warming up driver/service if Initializing or NoData
     let mut attempts = 0;
     let max_attempts = 5;
     while (status == PositionStatus::Initializing || status == PositionStatus::NoData)
         && attempts < max_attempts
     {
         attempts += 1;
-        println!(
-            "[*] Sensor pipeline initializing... waiting for GPS fix (attempt {}/{})...",
-            attempts, max_attempts
-        );
         thread::sleep(Duration::from_millis(1000));
         status = geolocator
             .LocationStatus()
             .unwrap_or(PositionStatus::NotAvailable);
     }
 
-    println!("[*] Active Location Status: {:?}", status);
-
-    // Request fresh fix with zero max-age (bypass stale IP cache) and 15s timeout
     let max_age = windows::Foundation::TimeSpan { Duration: 0 };
     let timeout = windows::Foundation::TimeSpan {
         Duration: 150_000_000,
@@ -192,21 +184,51 @@ pub fn read_windows_location() -> Result<()> {
         _ => "Unspecified",
     };
 
+    Ok(LiveLocationReport {
+        latitude: pos.Latitude,
+        longitude: pos.Longitude,
+        altitude: pos.Altitude,
+        accuracy,
+        source: source_str.to_string(),
+        timestamp: "Active".to_string(),
+    })
+}
+
+#[cfg(windows)]
+pub fn read_windows_location() -> Result<()> {
+    println!("[*] Querying Windows Location Service (Windows.Devices.Geolocation)...");
+    let report = query_live_location()?;
+
     println!("\n=== Windows Live Location Report ===");
-    println!("Latitude:   {:.7}°", pos.Latitude);
-    println!("Longitude:  {:.7}°", pos.Longitude);
-    println!("Altitude:   {:.2} m", pos.Altitude);
-    println!("Accuracy:   {:.1} m", accuracy);
-    println!("Source:     {}", source_str);
+    println!("Latitude:   {:.7}°", report.latitude);
+    println!("Longitude:  {:.7}°", report.longitude);
+    println!("Altitude:   {:.2} m", report.altitude);
+    println!("Accuracy:   {:.1} m", report.accuracy);
+    println!("Source:     {}", report.source);
     println!("====================================\n");
 
     Ok(())
 }
 
 #[cfg(not(windows))]
+pub fn query_live_location() -> Result<LiveLocationReport> {
+    let cfg = crate::driver_comm::get_driver_parameters().unwrap_or_default();
+    Ok(LiveLocationReport {
+        latitude: cfg.lat,
+        longitude: cfg.lon,
+        altitude: cfg.alt,
+        accuracy: cfg.acc,
+        source: "Satellite (GNSS / GPS)".to_string(),
+        timestamp: "Simulated Fix".to_string(),
+    })
+}
+
+#[cfg(not(windows))]
 pub fn read_windows_location() -> Result<()> {
+    let report = query_live_location()?;
     println!(
-        "[*] Simulated Location: Lat: 35.6997000°, Lon: 51.3380000°, Alt: 1200.00 m, Acc: 5.0 m"
+        "[*] Simulated Location: Lat: {:.7}°, Lon: {:.7}°, Alt: {:.2} m, Acc: {:.1} m (Source: {})",
+        report.latitude, report.longitude, report.altitude, report.accuracy, report.source
     );
     Ok(())
 }
