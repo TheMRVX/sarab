@@ -75,6 +75,14 @@ pub struct SetArgs {
     /// Horizontal accuracy radius in meters (default: 5.0)
     #[arg(short = 'c', long, default_value_t = 5.0)]
     pub acc: f64,
+
+    /// Enable natural GPS drift simulation (default: true)
+    #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+    pub drift: bool,
+
+    /// Drift radius standard deviation in meters (default: 1.2)
+    #[arg(long, default_value_t = 1.2)]
+    pub drift_radius: f64,
 }
 
 #[derive(Args, Debug)]

@@ -10,6 +10,18 @@ pub struct SpoofConfig {
     pub alt: f64,
     pub acc: f64,
     pub enabled: bool,
+    #[serde(default = "default_drift_enabled")]
+    pub drift_enabled: bool,
+    #[serde(default = "default_drift_radius")]
+    pub drift_radius: f64,
+}
+
+fn default_drift_enabled() -> bool {
+    true
+}
+
+fn default_drift_radius() -> f64 {
+    1.2
 }
 
 impl Default for SpoofConfig {
@@ -20,6 +32,8 @@ impl Default for SpoofConfig {
             alt: 1200.0,
             acc: 5.0,
             enabled: true,
+            drift_enabled: true,
+            drift_radius: 1.2,
         }
     }
 }
@@ -38,6 +52,16 @@ pub fn validate_coordinates(lat: f64, lon: f64, _alt: f64, acc: f64) -> Result<(
         bail!(
             "Invalid accuracy: {} (must be greater than 0.0 meters)",
             acc
+        );
+    }
+    Ok(())
+}
+
+pub fn validate_drift(radius: f64) -> Result<()> {
+    if !(0.0..=50.0).contains(&radius) {
+        bail!(
+            "Invalid drift radius: {} m (must be between 0.0 and 50.0 meters)",
+            radius
         );
     }
     Ok(())
@@ -104,6 +128,15 @@ mod tests {
     }
 
     #[test]
+    fn test_valid_drift() {
+        assert!(validate_drift(0.0).is_ok());
+        assert!(validate_drift(1.2).is_ok());
+        assert!(validate_drift(50.0).is_ok());
+        assert!(validate_drift(-0.1).is_err());
+        assert!(validate_drift(50.1).is_err());
+    }
+
+    #[test]
     fn test_toml_serialization() {
         let original = SpoofConfig {
             lat: 40.7128,
@@ -111,6 +144,8 @@ mod tests {
             alt: 10.0,
             acc: 3.5,
             enabled: true,
+            drift_enabled: true,
+            drift_radius: 1.5,
         };
         let serialized = toml::to_string(&original).unwrap();
         let deserialized: SpoofConfig = toml::from_str(&serialized).unwrap();
