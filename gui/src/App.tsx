@@ -19,6 +19,7 @@ import { PresetsSelector } from './components/PresetsSelector';
 import { RouteSimulator } from './components/RouteSimulator';
 import { SatelliteCard } from './components/SatelliteCard';
 import { DriverSetupCard } from './components/DriverSetupCard';
+import { DriftControlCard } from './components/DriftControlCard';
 import { StatusBar } from './components/StatusBar';
 
 import { api } from './api/client';
@@ -63,6 +64,8 @@ export const App: React.FC = () => {
     altitude: 1200.0,
     accuracy: 5.0,
     enabled: true,
+    driftEnabled: true,
+    driftRadius: 1.2,
   });
   const [systemStatus, setSystemStatus] = useState<SystemStatus | null>(null);
   const [liveFix, setLiveFix] = useState<LiveLocation | null>(null);
@@ -174,8 +177,40 @@ export const App: React.FC = () => {
       altitude: preset.alt,
       accuracy: preset.acc,
       enabled: config.enabled,
+      driftEnabled: config.driftEnabled,
+      driftRadius: config.driftRadius,
     };
     await handleApplyConfig(newConfig);
+  };
+
+  // Handle drift toggle
+  const handleToggleDrift = async (enabled: boolean) => {
+    const updated: SpoofConfig = { ...config, driftEnabled: enabled };
+    setConfig(updated);
+    try {
+      const ok = await api.applySpoofConfig(updated);
+      if (ok) {
+        showNotification(
+          enabled ? 'Gauss-Markov GPS Drift & Jitter activated' : 'GPS Drift suspended (Static fix)',
+          'info'
+        );
+      } else {
+        showNotification('Failed to update drift configuration', 'error');
+      }
+    } catch {
+      showNotification('Failed to update drift configuration', 'error');
+    }
+  };
+
+  // Handle drift radius change
+  const handleChangeDriftRadius = async (radius: number) => {
+    const updated: SpoofConfig = { ...config, driftRadius: radius };
+    setConfig(updated);
+    try {
+      await api.applySpoofConfig(updated);
+    } catch {
+      showNotification('Failed to update drift radius', 'error');
+    }
   };
 
   // Handle live WinRT query
@@ -291,6 +326,13 @@ export const App: React.FC = () => {
                 config={config}
                 onApply={handleApplyConfig}
                 isLoading={isLoading}
+              />
+              <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.06)' }} />
+              <DriftControlCard
+                driftEnabled={config.driftEnabled ?? true}
+                driftRadius={config.driftRadius ?? 1.2}
+                onToggleDrift={handleToggleDrift}
+                onChangeRadius={handleChangeDriftRadius}
               />
               <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.06)' }} />
               <PresetsSelector

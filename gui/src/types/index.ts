@@ -4,6 +4,14 @@ export interface SpoofConfig {
   altitude: number;
   accuracy: number;
   enabled: boolean;
+  driftEnabled: boolean;
+  driftRadius: number; // in meters (e.g. 1.2)
+}
+
+export interface DriftPoint {
+  x: number; // in meters (East)
+  y: number; // in meters (North)
+  timestamp: number;
 }
 
 export interface SystemStatus {

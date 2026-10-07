@@ -128,18 +128,37 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
       const newSegmentProgress = segmentProgress + progressIncrement;
 
+      // If natural drift is active, superimpose organic road micro-flutter
+      let jitterLat = 0;
+      let jitterLon = 0;
+      if (currentConfig.driftEnabled && currentConfig.driftRadius > 0) {
+        const u1 = Math.max(1e-15, Math.random());
+        const u2 = Math.random();
+        const r = Math.sqrt(-2.0 * Math.log(u1));
+        const theta = 2.0 * Math.PI * u2;
+        const z0 = r * Math.cos(theta);
+        const z1 = r * Math.sin(theta);
+        const jitterMeters = currentConfig.driftRadius * 0.35;
+        jitterLat = (z0 * jitterMeters) / 111132.95;
+        const cosLat = Math.cos((p1.lat * Math.PI) / 180);
+        jitterLon = (z1 * jitterMeters) / (111132.95 * (Math.abs(cosLat) < 0.01 ? 0.01 : cosLat));
+      }
+
       if (newSegmentProgress >= 1.0) {
         // Move to next segment
         simulationRef.current = {
           currentSegment: nextSegmentIndex,
           segmentProgress: 0,
         };
-        onUpdateCoordinates(p2.lat, p2.lon);
+        onUpdateCoordinates(
+          parseFloat((p2.lat + jitterLat).toFixed(7)),
+          parseFloat((p2.lon + jitterLon).toFixed(7))
+        );
       } else {
-        // Linear interpolation
+        // Linear interpolation with natural micro-jitter
         simulationRef.current.segmentProgress = newSegmentProgress;
-        const currentLat = p1.lat + (p2.lat - p1.lat) * newSegmentProgress;
-        const currentLon = p1.lon + (p2.lon - p1.lon) * newSegmentProgress;
+        const currentLat = p1.lat + (p2.lat - p1.lat) * newSegmentProgress + jitterLat;
+        const currentLon = p1.lon + (p2.lon - p1.lon) * newSegmentProgress + jitterLon;
         onUpdateCoordinates(
           parseFloat(currentLat.toFixed(7)),
           parseFloat(currentLon.toFixed(7))

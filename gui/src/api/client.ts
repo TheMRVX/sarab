@@ -12,6 +12,8 @@ const DEFAULT_CONFIG: SpoofConfig = {
   altitude: 1200.0,
   accuracy: 5.0,
   enabled: true,
+  driftEnabled: true,
+  driftRadius: 1.2,
 };
 
 let memoryConfig: SpoofConfig = { ...DEFAULT_CONFIG };
