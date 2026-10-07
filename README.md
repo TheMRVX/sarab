@@ -8,10 +8,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D4)
 ![Rust](https://img.shields.io/badge/CLI-Rust-orange)
+![UI](https://img.shields.io/badge/GUI-Material--UI%20%2B%20React-00e5ff)
 ![Driver](https://img.shields.io/badge/driver-UMDF%202.0%20(C%2B%2B)-5C2D91)
 
 [Overview](#overview) •
 [Modes](#operating-modes) •
+[GUI Dashboard](#web-control-dashboard--interactive-map-gui) •
 [Installation](#installation) •
 [Usage](#usage) •
 [Building](#building-from-source) •
@@ -24,7 +26,7 @@
 
 ## Overview
 
-Sarab (Persian: *سراب*, "mirage") is a command-line tool and virtual GNSS driver that reports user-defined coordinates (latitude, longitude, altitude, accuracy) to Windows. Applications that use `Windows.Devices.Geolocation`, such as Windows Maps, Weather, Edge and Chrome, receive them as a fix from a real GPS sensor.
+Sarab (Persian: *سراب*, "mirage") is a high-precision virtual GNSS driver and control suite that reports user-defined coordinates (latitude, longitude, altitude, accuracy) to Windows. Applications that use `Windows.Devices.Geolocation`, such as Windows Maps, Weather, Edge and Chrome, receive them as a fix from a real GPS sensor.
 
 Typical use cases:
 
@@ -44,14 +46,16 @@ Typical use cases:
 | Takes priority over Wi-Fi / IP location | Yes | No — used only when no other source is available |
 | Requires driver | Yes | No |
 | Requires Test Signing + Secure Boot off | Yes | No |
-| Command | `sarab set` / `enable` | `sarab simple` |
+| Command | `sarab set` / `enable` / `gui` | `sarab simple` |
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    CLI["sarab.exe (Rust CLI)"]
-    CLI -- "Advanced: set / enable / disable" --> REG1["HKLM\...\SarabGnss\Parameters"]
+    GUI["Web / GUI Control Dashboard (MUI + Leaflet)"]
+    CLI["sarab.exe (Rust CLI & Embedded Server)"]
+    GUI <--> |"REST API / WebSocket"| CLI
+    CLI -- "Advanced: set / enable / gui" --> REG1["HKLM\...\SarabGnss\Parameters"]
     CLI -- "Simple: simple" --> REG2["HKLM\...\lfsvc\Service\Configuration"]
     REG1 --> DRV["SarabGnss.dll (UMDF 2.0) in WUDFHost.exe"]
     DRV --> LF["Windows Location Service (lfsvc)"]
@@ -65,8 +69,9 @@ Repository layout:
 
 ```
 sarab/
-├── app/        Rust CLI: argument parsing, config, installer, driver IPC, location reader
+├── app/        Rust CLI: CLI parser, embedded HTTP server, driver IPC, installer, reader
 ├── driver/     C++ UMDF 2.0 virtual GNSS driver (SarabGnss)
+├── gui/        Modern React 18 + Material-UI (MUI) + Leaflet interactive dashboard
 ├── scripts/    Release tooling
 └── .github/    CI workflow (build, test-sign, package)
 ```
@@ -144,11 +149,29 @@ sarab.exe read
 
 To confirm from an application, open Windows Maps or visit [BrowserLeaks Geolocation](https://browserleaks.com/geo) in Edge or Chrome.
 
+### Web Control Dashboard & Interactive Map (GUI)
+
+Launch the interactive dark-themed Material-UI dashboard:
+
+```cmd
+sarab.exe gui
+```
+*(or `sarab.exe web --port 8090`)*
+
+Features:
+- **Interactive Map:** Click anywhere or drag the target pin on high-detail CartoDB Dark Matter maps to spoof coordinates instantly.
+- **Dynamic Route Simulator:** Define waypoints, select vehicle profiles (Walking 5 km/h, Cycling 20 km/h, Driving 60 km/h), and simulate realistic continuous motion with 1Hz live telemetry interpolation.
+- **GNSS Constellation Telemetry:** Real-time satellite monitor with anti-spoofing stealth safeguards (elevation-dependent SNR spread between 28–44 dB-Hz avoiding intrusion detection).
+- **Location Presets & Custom Bookmarks:** Instant teleportation to major cities (Tehran, Isfahan, Shiraz, Dubai, Tokyo, London, New York) or custom saved pins in `localStorage`.
+- **System & Fix Verification:** Verify live fixes reported by `Windows.Devices.Geolocation` and audit Test Signing / BitLocker status in real time.
+
 ### Command Reference
 
 | Command | Description |
 |---|---|
-| `set` | Set spoof coordinates |
+| `gui` | Launch interactive Material-UI web control suite |
+| `web` | Alias for `gui` (configurable via `-p, --port` and `-H, --host`) |
+| `set` | Set spoof coordinates via CLI |
 | `enable` | Start providing the spoofed fix |
 | `disable` | Stop providing fixes |
 | `status` | Show system state, driver status and active coordinates |
