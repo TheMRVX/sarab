@@ -194,16 +194,37 @@ pub fn query_live_location() -> Result<LiveLocationReport> {
     })
 }
 
+struct FixSummary {
+    lat: f64,
+    lon: f64,
+    alt: f64,
+    acc: f64,
+}
+
+impl std::fmt::Display for FixSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Latitude:   {:.7}°\nLongitude:  {:.7}°\nAltitude:   {:.2} m\nAccuracy:   {:.1} m",
+            self.lat, self.lon, self.alt, self.acc
+        )
+    }
+}
+
 #[cfg(windows)]
 pub fn read_windows_location() -> Result<()> {
     println!("[*] Querying Windows Location Service (Windows.Devices.Geolocation)...");
     let report = query_live_location()?;
 
+    let summary = FixSummary {
+        lat: report.latitude,
+        lon: report.longitude,
+        alt: report.altitude,
+        acc: report.accuracy,
+    };
+
     println!("\n=== Windows Live Location Report ===");
-    println!("Latitude:   {:.7}°", report.latitude);
-    println!("Longitude:  {:.7}°", report.longitude);
-    println!("Altitude:   {:.2} m", report.altitude);
-    println!("Accuracy:   {:.1} m", report.accuracy);
+    println!("{}", summary);
     println!("Source:     {}", report.source);
     println!("====================================\n");
 
@@ -226,9 +247,12 @@ pub fn query_live_location() -> Result<LiveLocationReport> {
 #[cfg(not(windows))]
 pub fn read_windows_location() -> Result<()> {
     let report = query_live_location()?;
-    println!(
-        "[*] Simulated Location: Lat: {:.7}°, Lon: {:.7}°, Alt: {:.2} m, Acc: {:.1} m (Source: {})",
-        report.latitude, report.longitude, report.altitude, report.accuracy, report.source
-    );
+    let summary = FixSummary {
+        lat: report.latitude,
+        lon: report.longitude,
+        alt: report.altitude,
+        acc: report.accuracy,
+    };
+    println!("[*] Simulated Location:\n{} (Source: {})", summary, report.source);
     Ok(())
 }

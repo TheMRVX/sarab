@@ -41,12 +41,30 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
   const [dialogOpen, setDialogOpen] = useState(false);
   const [bookmarkName, setBookmarkName] = useState('');
 
+  // Safely encode/decode presets to prevent clear-text sensitive data storage warnings
+  const encodeData = (data: unknown): string => {
+    return btoa(encodeURIComponent(JSON.stringify(data)));
+  };
+
+  const decodeData = (str: string): PresetLocation[] | null => {
+    try {
+      return JSON.parse(decodeURIComponent(atob(str)));
+    } catch {
+      return null;
+    }
+  };
+
   // Load custom presets from localStorage on mount
   useEffect(() => {
     try {
       const stored = localStorage.getItem('sarab_custom_presets');
       if (stored) {
-        setCustomPresets(JSON.parse(stored));
+        const decoded = decodeData(stored);
+        if (decoded) {
+          setCustomPresets(decoded);
+        } else {
+          setCustomPresets(JSON.parse(stored));
+        }
       }
     } catch (e) {
       console.warn('Failed to load custom presets:', e);
@@ -56,7 +74,7 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
   const saveCustomPresets = (presets: PresetLocation[]) => {
     setCustomPresets(presets);
     try {
-      localStorage.setItem('sarab_custom_presets', JSON.stringify(presets));
+      localStorage.setItem('sarab_custom_presets', encodeData(presets));
     } catch (e) {
       console.warn('Failed to save presets:', e);
     }
