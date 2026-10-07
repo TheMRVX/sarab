@@ -35,6 +35,27 @@ pub enum Commands {
 
     /// Configure Simple Mode (sets default location in registry without driver)
     Simple(SimpleArgs),
+
+    /// Launch the interactive GUI Web Control Dashboard (Material-UI + Map)
+    Gui(GuiArgs),
+
+    /// Launch the interactive GUI Web Control Dashboard (alias for gui)
+    Web(GuiArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct GuiArgs {
+    /// Host interface to bind server to (default: 127.0.0.1)
+    #[arg(short = 'H', long, default_value = "127.0.0.1")]
+    pub host: String,
+
+    /// HTTP port for the web dashboard (default: 8090)
+    #[arg(short, long, default_value_t = 8090)]
+    pub port: u16,
+
+    /// Automatically open default web browser
+    #[arg(long)]
+    pub open: bool,
 }
 
 #[derive(Args, Debug)]

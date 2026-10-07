@@ -4,6 +4,7 @@ mod driver_comm;
 mod installer;
 mod reader;
 mod simple;
+mod web;
 
 use anyhow::Result;
 use clap::Parser;
@@ -135,6 +136,10 @@ fn main() -> Result<()> {
         Commands::Simple(args) => {
             validate_coordinates(args.lat, args.lon, 0.0, 5.0)?;
             simple::set_simple_default_location(args.lat, args.lon)?;
+        }
+
+        Commands::Gui(args) | Commands::Web(args) => {
+            web::start_server(&args.host, args.port, args.open)?;
         }
     }
 
