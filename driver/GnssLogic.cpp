@@ -84,6 +84,48 @@ static void UpdateDrift(double sigma_h, double* out_dNorth, double* out_dEast, d
     *out_dUp    = g_Drift.dUp;
 }
 
+static BOOL ReadRegistryBool(HKEY hKey, const wchar_t* name, BOOL defaultValue)
+{
+    DWORD dwValue = 0;
+    DWORD dataSize = sizeof(dwValue);
+    if (RegQueryValueExW(hKey, name, NULL, NULL, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS) {
+        return (dwValue != 0);
+    }
+    return defaultValue;
+}
+
+static double ReadRegistryDouble(HKEY hKey, const wchar_t* name, double defaultValue)
+{
+    DWORD dwType = 0;
+    DWORD dwValue = 0;
+    DWORD dataSize = sizeof(dwValue);
+    if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
+        return (double)dwValue;
+    }
+    wchar_t strBuffer[128];
+    dataSize = sizeof(strBuffer);
+    if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
+        return _wtof(strBuffer);
+    }
+    return defaultValue;
+}
+
+static ULONG ReadRegistryUlong(HKEY hKey, const wchar_t* name, ULONG defaultValue)
+{
+    DWORD dwType = 0;
+    DWORD dwValue = 0;
+    DWORD dataSize = sizeof(dwValue);
+    if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
+        return (ULONG)dwValue;
+    }
+    wchar_t strBuffer[128];
+    dataSize = sizeof(strBuffer);
+    if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
+        return (ULONG)_wtoi(strBuffer);
+    }
+    return defaultValue;
+}
+
 void LoadSpoofConfigFromRegistry(SpoofConfig* config)
 {
     if (!config) return;
@@ -104,64 +146,15 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
         return;
     }
 
-    wchar_t strBuffer[128];
-    DWORD dataSize = 0;
-    DWORD dwValue = 0;
+    config->Enabled           = ReadRegistryBool(hKey, L"Enabled", config->Enabled);
+    config->DriftEnabled      = ReadRegistryBool(hKey, L"DriftEnabled", config->DriftEnabled);
+    config->DriftRadiusMeters = ReadRegistryDouble(hKey, L"DriftRadius", config->DriftRadiusMeters);
+    if (config->DriftRadiusMeters < 0.0) config->DriftRadiusMeters = 0.0;
 
-    // Read Enabled (DWORD)
-    dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"Enabled", NULL, NULL, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS) {
-        config->Enabled = (dwValue != 0);
-    }
-
-    // Read DriftEnabled (DWORD)
-    dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"DriftEnabled", NULL, NULL, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS) {
-        config->DriftEnabled = (dwValue != 0);
-    }
-
-    // Read DriftRadius (REG_DWORD or REG_SZ)
-    DWORD dwType = 0;
-    dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"DriftRadius", NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
-        config->DriftRadiusMeters = (double)dwValue;
-    } else {
-        dataSize = sizeof(strBuffer);
-        if (RegQueryValueExW(hKey, L"DriftRadius", NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
-            config->DriftRadiusMeters = _wtof(strBuffer);
-            if (config->DriftRadiusMeters < 0.0) config->DriftRadiusMeters = 0.0;
-        }
-    }
-
-    // Read Latitude (REG_SZ)
-    dataSize = sizeof(strBuffer);
-    if (RegQueryValueExW(hKey, L"Latitude", NULL, NULL, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS) {
-        config->Latitude = _wtof(strBuffer);
-    }
-
-    // Read Longitude (REG_SZ)
-    dataSize = sizeof(strBuffer);
-    if (RegQueryValueExW(hKey, L"Longitude", NULL, NULL, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS) {
-        config->Longitude = _wtof(strBuffer);
-    }
-
-    // Read Altitude (REG_SZ)
-    dataSize = sizeof(strBuffer);
-    if (RegQueryValueExW(hKey, L"Altitude", NULL, NULL, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS) {
-        config->Altitude = _wtof(strBuffer);
-    }
-
-    // Read Accuracy (REG_DWORD or REG_SZ)
-    dwType = 0;
-    dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"Accuracy", NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
-        config->Accuracy = dwValue;
-    } else {
-        dataSize = sizeof(strBuffer);
-        if (RegQueryValueExW(hKey, L"Accuracy", NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
-            config->Accuracy = (ULONG)_wtoi(strBuffer);
-        }
-    }
+    config->Latitude          = ReadRegistryDouble(hKey, L"Latitude", config->Latitude);
+    config->Longitude         = ReadRegistryDouble(hKey, L"Longitude", config->Longitude);
+    config->Altitude          = ReadRegistryDouble(hKey, L"Altitude", config->Altitude);
+    config->Accuracy          = ReadRegistryUlong(hKey, L"Accuracy", config->Accuracy);
 
     RegCloseKey(hKey);
 
