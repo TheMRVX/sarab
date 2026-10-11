@@ -160,6 +160,7 @@ sarab.exe gui
 
 Features:
 - **Interactive Map:** Click anywhere or drag the target pin on high-detail CartoDB Dark Matter maps to spoof coordinates instantly.
+- **Natural GPS Drift & Jitter:** 1Hz Gauss-Markov Ornstein-Uhlenbeck process mimics physical receiver tracking-loop errors, dynamic HDOP/VDOP jitter, and elevation-dependent SNR variations. Includes live 2D scatter radar in the dashboard.
 - **Dynamic Route Simulator:** Define waypoints, select vehicle profiles (Walking 5 km/h, Cycling 20 km/h, Driving 60 km/h), and simulate realistic continuous motion with 1Hz live telemetry interpolation.
 - **GNSS Constellation Telemetry:** Real-time satellite monitor with anti-spoofing stealth safeguards (elevation-dependent SNR spread between 28–44 dB-Hz avoiding intrusion detection).
 - **Location Presets & Custom Bookmarks:** Instant teleportation to major cities (Tehran, Isfahan, Shiraz, Dubai, Tokyo, London, New York) or custom saved pins in `localStorage`.
@@ -188,6 +189,8 @@ Features:
 | `--lon` | Longitude (decimal degrees) | required | −180 … 180 |
 | `--alt` | Altitude (meters) | `0.0` | — |
 | `-c, --acc` | Horizontal accuracy (meters) | `5.0` | > 0 |
+| `--drift` | Enable/disable natural Gauss-Markov GPS drift | `true` | flag (`--drift` / `--no-drift`) |
+| `--drift-radius` | Mean-reverting 1σ wander radius (meters) | `1.2` | 0.0 … 50.0 |
 
 > Run `sarab.exe <command> --help` for the authoritative option list of your build.
 

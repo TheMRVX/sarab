@@ -17,6 +17,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Set(args) => {
             validate_coordinates(args.lat, args.lon, args.alt, args.acc)?;
+            config::validate_drift(args.drift_radius)?;
 
             let config = SpoofConfig {
                 lat: args.lat,
@@ -24,6 +25,8 @@ fn main() -> Result<()> {
                 alt: args.alt,
                 acc: args.acc,
                 enabled: true,
+                drift_enabled: args.drift,
+                drift_radius: args.drift_radius,
             };
 
             driver_comm::set_driver_parameters(&config)?;
@@ -34,6 +37,14 @@ fn main() -> Result<()> {
             println!("    Longitude: {:.7}°", config.lon);
             println!("    Altitude:  {:.2} m", config.alt);
             println!("    Accuracy:  {:.1} m", config.acc);
+            println!(
+                "    Drift:     {}",
+                if config.drift_enabled {
+                    format!("ENABLED (±{:.1}m Gauss-Markov OU)", config.drift_radius)
+                } else {
+                    "DISABLED".to_string()
+                }
+            );
             println!("    State:     ACTIVE");
         }
 
@@ -80,6 +91,14 @@ fn main() -> Result<()> {
             println!("Configured Lon:    {:.7}°", current_config.lon);
             println!("Configured Alt:    {:.2} m", current_config.alt);
             println!("Configured Acc:    {:.1} m", current_config.acc);
+            println!(
+                "Natural Drift:     {}",
+                if current_config.drift_enabled {
+                    format!("ENABLED (±{:.1}m Gauss-Markov OU)", current_config.drift_radius)
+                } else {
+                    "DISABLED".to_string()
+                }
+            );
             println!("=====================================================\n");
         }
 

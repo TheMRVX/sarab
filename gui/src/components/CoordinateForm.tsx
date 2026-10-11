@@ -71,6 +71,8 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
       altitude: parsedAlt,
       accuracy: acc,
       enabled: config.enabled,
+      driftEnabled: config.driftEnabled,
+      driftRadius: config.driftRadius,
     });
 
     setSuccess(true);
