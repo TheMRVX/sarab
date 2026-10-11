@@ -120,13 +120,14 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
         config->DriftEnabled = (dwValue != 0);
     }
 
-    // Read DriftRadius (REG_SZ or DWORD)
+    // Read DriftRadius (REG_DWORD or REG_SZ)
+    DWORD dwType = 0;
     dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"DriftRadius", NULL, NULL, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS) {
+    if (RegQueryValueExW(hKey, L"DriftRadius", NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
         config->DriftRadiusMeters = (double)dwValue;
     } else {
         dataSize = sizeof(strBuffer);
-        if (RegQueryValueExW(hKey, L"DriftRadius", NULL, NULL, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS) {
+        if (RegQueryValueExW(hKey, L"DriftRadius", NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
             config->DriftRadiusMeters = _wtof(strBuffer);
             if (config->DriftRadiusMeters < 0.0) config->DriftRadiusMeters = 0.0;
         }
@@ -150,13 +151,14 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
         config->Altitude = _wtof(strBuffer);
     }
 
-    // Read Accuracy (REG_SZ or DWORD)
+    // Read Accuracy (REG_DWORD or REG_SZ)
+    dwType = 0;
     dataSize = sizeof(dwValue);
-    if (RegQueryValueExW(hKey, L"Accuracy", NULL, NULL, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS) {
+    if (RegQueryValueExW(hKey, L"Accuracy", NULL, &dwType, (LPBYTE)&dwValue, &dataSize) == ERROR_SUCCESS && dwType == REG_DWORD) {
         config->Accuracy = dwValue;
     } else {
         dataSize = sizeof(strBuffer);
-        if (RegQueryValueExW(hKey, L"Accuracy", NULL, NULL, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS) {
+        if (RegQueryValueExW(hKey, L"Accuracy", NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
             config->Accuracy = (ULONG)_wtoi(strBuffer);
         }
     }
@@ -224,6 +226,12 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
         finalLat += dNorth / metersPerDegreeLat;
         finalLon += dEast / metersPerDegreeLon;
         finalAlt += dUp;
+
+        // Clamp latitude to [-90.0, 90.0] and wrap longitude to [-180.0, 180.0]
+        if (finalLat > 90.0) finalLat = 90.0;
+        if (finalLat < -90.0) finalLat = -90.0;
+        while (finalLon > 180.0) finalLon -= 360.0;
+        while (finalLon < -180.0) finalLon += 360.0;
 
         // Dynamic HDOP/VDOP based on normalized displacement
         double offsetDist = sqrt(dNorth * dNorth + dEast * dEast);
