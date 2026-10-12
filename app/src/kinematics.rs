@@ -67,6 +67,19 @@ pub fn cornering_speed_mps(base_speed_mps: f64, incoming_bearing: f64, outgoing_
     base_speed_mps * factor
 }
 
+/// Calculates destination point given starting point, distance (meters), and bearing (degrees).
+pub fn destination_point(lat: f64, lon: f64, distance_meters: f64, bearing_degrees: f64) -> (f64, f64) {
+    let delta = distance_meters / EARTH_RADIUS_METERS;
+    let theta = bearing_degrees.to_radians();
+    let phi1 = lat.to_radians();
+    let lambda1 = lon.to_radians();
+
+    let phi2 = (phi1.sin() * delta.cos() + phi1.cos() * delta.sin() * theta.cos()).asin();
+    let lambda2 = lambda1 + (theta.sin() * delta.sin() * phi1.cos()).atan2(delta.cos() - phi1.sin() * phi2.sin());
+
+    (phi2.to_degrees(), (lambda2.to_degrees() + 540.0) % 360.0 - 180.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

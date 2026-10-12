@@ -160,6 +160,7 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Heading           = ReadRegistryDouble(hKey, L"Heading", config->Heading);
     config->Speed             = ReadRegistryDouble(hKey, L"Speed", config->Speed);
     config->RtkShieldEnabled  = ReadRegistryBool(hKey, L"RtkShield", TRUE);
+    config->EnvironmentMode   = ReadRegistryUlong(hKey, L"EnvironmentMode", 0);
 
     if (config->Heading < 0.0) config->Heading = 0.0;
     while (config->Heading >= 360.0) config->Heading -= 360.0;
@@ -214,7 +215,31 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
     pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
     pAccData->Version = GNSS_DRIVER_VERSION_1;
 
-    if (config->RtkShieldEnabled) {
+    if (config->EnvironmentMode == 2) {
+        // Tunnel / Dead Reckoning mode: complete loss of line-of-sight satellite signals
+        pAccData->HorizontalAccuracy = (config->Accuracy > 20) ? config->Accuracy : 25;
+        pAccData->AltitudeAccuracy = pAccData->HorizontalAccuracy * 2;
+        pAccData->HeadingAccuracy = 25;
+        pAccData->SpeedAccuracy = 5;
+        pAccData->HorizontalConfidence = 50;
+        pAccData->AltitudeConfidence = 50;
+        pAccData->HeadingConfidence = 60;
+        pAccData->SpeedConfidence = 70;
+        pAccData->HorizontalDilutionOfPrecision = 12.0f;
+        pAccData->VerticalDilutionOfPrecision = 18.0f;
+    } else if (config->EnvironmentMode == 1) {
+        // Urban Canyon multipath mode: building reflections and higher HDOP
+        pAccData->HorizontalAccuracy = (config->Accuracy > 10) ? config->Accuracy : 12;
+        pAccData->AltitudeAccuracy = (ULONG)(pAccData->HorizontalAccuracy * 1.5f);
+        pAccData->HeadingAccuracy = 10;
+        pAccData->SpeedAccuracy = 2;
+        pAccData->HorizontalConfidence = 80;
+        pAccData->AltitudeConfidence = 80;
+        pAccData->HeadingConfidence = 85;
+        pAccData->SpeedConfidence = 85;
+        pAccData->HorizontalDilutionOfPrecision = (hdop < 2.5f) ? 2.5f : hdop;
+        pAccData->VerticalDilutionOfPrecision = (vdop < 3.2f) ? 3.2f : vdop;
+    } else if (config->RtkShieldEnabled) {
         // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
         pAccData->HorizontalAccuracy = 1;
         pAccData->AltitudeAccuracy = 1;
@@ -245,20 +270,29 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
     );
 }
 
-static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData)
+static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData, ULONG environmentMode)
 {
     pSatData->Size = sizeof(GNSS_FIXDATA_SATELLITE);
     pSatData->Version = GNSS_DRIVER_VERSION_1;
-    pSatData->SatelliteCount = 12;
-    for (ULONG i = 0; i < 12; i++) {
+
+    if (environmentMode == 2) {
+        // Tunnel / Underground: Zero visible satellites
+        pSatData->SatelliteCount = 0;
+        return;
+    }
+
+    ULONG satCount = (environmentMode == 1) ? 5 : 12;
+    pSatData->SatelliteCount = satCount;
+    for (ULONG i = 0; i < satCount; i++) {
         pSatData->SatelliteArray[i].SatelliteId = i + 1;
         pSatData->SatelliteArray[i].UsedInPositiong = TRUE;
-        double elevation = 25.0 + (double)((i * 17) % 65);
+        double minElev = (environmentMode == 1) ? 45.0 : 25.0;
+        double elevation = minElev + (double)((i * 17) % (ULONG)(90.0 - minElev));
         pSatData->SatelliteArray[i].Elevation = elevation;
         pSatData->SatelliteArray[i].Azimuth = (double)(i * 30 + 15);
 
         double radElev = elevation * (M_PI / 180.0);
-        double baseSnr = 35.0 + 10.0 * sin(radElev);
+        double baseSnr = (environmentMode == 1) ? (20.0 + 6.0 * sin(radElev)) : (35.0 + 10.0 * sin(radElev));
         double scint = ((double)(i % 3) - 1.0) * 0.5;
         pSatData->SatelliteArray[i].SignalToNoiseRatio = baseSnr + scint;
     }
@@ -311,7 +345,7 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     pFixData->BasicData.Heading = config->Heading;
 
     PopulateAccuracyData(&pFixData->AccuracyData, config, hdop, vdop);
-    PopulateSatelliteTelemetry(&pFixData->SatelliteData);
+    PopulateSatelliteTelemetry(&pFixData->SatelliteData, config->EnvironmentMode);
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_EVENT));
     TraceEvents(0, 0, "Completed GNSS_EVENT Fix for Session %u: Lat=%.7f Lon=%.7f Alt=%.2f Acc=%u HDOP=%.2f",

@@ -21,6 +21,7 @@ import PrivacyTipIcon from '@mui/icons-material/PrivacyTip';
 import BuildIcon from '@mui/icons-material/Build';
 import { SecurityShield } from './SecurityShield';
 import { ServiceManagerCard } from './ServiceManagerCard';
+import { EnvironmentalEffects } from './EnvironmentalEffects';
 import { SystemStatus } from '../types';
 
 interface DriverSetupCardProps {
@@ -138,6 +139,9 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
 
       {/* Windows Background Service Daemon */}
       <ServiceManagerCard />
+
+      {/* Urban Canyon Multipath & Tunnel Dead Reckoning */}
+      <EnvironmentalEffects />
 
       {/* Troubleshooting PowerShell helpers */}
       <Accordion
