@@ -60,6 +60,13 @@ jobs:
           cd app
           cargo test --locked --verbose
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          Write-Host "[*] Installing Inno Setup..."
+          choco install -y innosetup
+          "C:\Program Files (x86)\Inno Setup 6" | Out-File -FilePath $env:GITHUB_PATH -Append
+
       - name: Setup WDK Packages and Locate Paths
         shell: pwsh
         run: |
@@ -175,7 +182,7 @@ jobs:
           "@ | Out-File -FilePath "$packageDir\uninstall.bat" -Encoding ascii
 
           # Determine version tag and whether this run should publish a release
-          $tag = "v0.2.0-beta"
+          $tag = "v1.0.0"
           $shouldRelease = "false"
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
               $tag = $env:GITHUB_REF_NAME
@@ -187,21 +194,37 @@ jobs:
 
           # Validate tag format (SemVer with leading 'v') before using it anywhere
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$') {
-              throw "[-] Invalid release tag '$tag'. Expected SemVer like v0.1.1 or v0.1.1-alpha."
+              throw "[-] Invalid release tag '$tag'. Expected SemVer like v0.1.1 or v1.0.0."
           }
+
+          # Stage release assets folder
+          New-Item -ItemType Directory -Path "release_assets" -Force | Out-Null
 
           $zipName = "sarab-$tag-x64.zip"
           Compress-Archive -Path "$packageDir\*" -DestinationPath $zipName -Force
           Write-Host "[+] Created $zipName successfully."
+          Copy-Item $zipName -Destination "release_assets\$zipName"
 
-          # Compute SHA256 checksums
+          # Compute SHA256 checksum for zip
           $hash = (Get-FileHash -Path $zipName -Algorithm SHA256).Hash.ToLower()
           "$hash  $zipName" | Out-File -FilePath "SHA256SUMS.txt" -Encoding ascii
           Write-Host "[+] Generated SHA256: $hash  $zipName"
 
-          # Stage release assets in one folder so the release job downloads exactly these files
-          New-Item -ItemType Directory -Path "release_assets" -Force | Out-Null
-          Copy-Item $zipName -Destination "release_assets\$zipName"
+          # Compile Inno Setup Installer
+          Write-Host "[*] Compiling Inno Setup installer..."
+          $cleanVer = $tag.TrimStart('v')
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DMyAppVersion="$cleanVer" installer\sarab_installer.iss
+          $installerExe = "installer\SarabSetup-v$cleanVer.exe"
+          if (Test-Path $installerExe) {
+              Write-Host "[+] Created installer: $installerExe"
+              Copy-Item $installerExe -Destination "release_assets\SarabSetup-$tag.exe"
+              $installerHash = (Get-FileHash -Path $installerExe -Algorithm SHA256).Hash.ToLower()
+              "$installerHash  SarabSetup-$tag.exe" | Out-File -FilePath "SHA256SUMS.txt" -Encoding ascii -Append
+              Write-Host "[+] Generated SHA256: $installerHash  SarabSetup-$tag.exe"
+          } else {
+              throw "[-] Inno Setup installer output not found at $installerExe"
+          }
+
           Copy-Item "SHA256SUMS.txt" -Destination "release_assets\SHA256SUMS.txt"
           Copy-Item "$packageDir\SarabGnss.cer" -Destination "release_assets\SarabGnss.cer"
 
