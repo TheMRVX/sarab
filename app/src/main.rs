@@ -10,6 +10,7 @@ mod reader;
 mod route_runner;
 mod simple;
 mod web;
+pub mod wifi_shield;
 
 use anyhow::Result;
 use clap::Parser;
