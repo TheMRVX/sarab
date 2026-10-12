@@ -37,6 +37,107 @@ interface RouteSimulatorProps {
   onWaypointsChange: (waypoints: Waypoint[]) => void;
 }
 
+// Subcomponent: Live Heading & Velocity Telemetry Gauge
+const TelemetryGauge: React.FC<{ heading: number; speedKmh: number }> = ({ heading, speedKmh }) => (
+  <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'rgba(0, 229, 255, 0.04)', borderColor: 'rgba(0, 229, 255, 0.2)' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box
+          sx={{
+            width: 36,
+            height: 36,
+            borderRadius: '50%',
+            bgcolor: 'background.paper',
+            border: '1px solid rgba(0, 229, 255, 0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transform: `rotate(${heading}deg)`,
+            transition: 'transform 0.4s ease-out',
+          }}
+        >
+          <NavigationIcon sx={{ color: 'primary.main', fontSize: 20 }} />
+        </Box>
+        <Box>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+            Course Over Ground (COG)
+          </Typography>
+          <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>
+            {heading.toFixed(1)}°
+          </Typography>
+        </Box>
+      </Box>
+
+      <Box sx={{ textAlign: 'right' }}>
+        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+          Kinematic Velocity
+        </Typography>
+        <Typography variant="body2" sx={{ fontWeight: 700, color: 'success.main', fontFamily: 'monospace' }}>
+          {speedKmh.toFixed(1)} km/h ({(speedKmh / 3.6).toFixed(1)} m/s)
+        </Typography>
+      </Box>
+    </Box>
+  </Paper>
+);
+
+// Subcomponent: Waypoints Queue List
+const WaypointsQueue: React.FC<{
+  waypoints: Waypoint[];
+  onAdd: () => void;
+  onRemove: (id: string) => void;
+  onClear: () => void;
+}> = ({ waypoints, onAdd, onRemove, onClear }) => (
+  <Paper variant="outlined" sx={{ p: 1.5, maxHeight: 180, overflowY: 'auto' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+      <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+        Waypoints Queue ({waypoints.length})
+      </Typography>
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button size="small" startIcon={<AddLocationIcon />} onClick={onAdd}>
+          Add Current
+        </Button>
+        {waypoints.length > 0 && (
+          <Button size="small" color="error" onClick={onClear}>
+            Clear
+          </Button>
+        )}
+      </Box>
+    </Box>
+
+    {waypoints.length === 0 ? (
+      <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', py: 2, color: 'text.secondary' }}>
+        No waypoints yet. Move the map pin and click "Add Current" or click "Import GPX".
+      </Typography>
+    ) : (
+      <List dense disablePadding>
+        {waypoints.slice(0, 100).map((wp, index) => (
+          <ListItem
+            key={wp.id}
+            secondaryAction={
+              <IconButton edge="end" size="small" onClick={() => onRemove(wp.id)}>
+                <DeleteIcon fontSize="small" />
+              </IconButton>
+            }
+            sx={{ py: 0.3 }}
+          >
+            <ListItemText
+              primary={`${index + 1}. ${wp.name || 'Waypoint'}`}
+              secondary={`Lat: ${wp.lat.toFixed(5)}°, Lon: ${wp.lon.toFixed(5)}°`}
+              primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600 }}
+              secondaryTypographyProps={{ fontSize: '0.7rem' }}
+            />
+          </ListItem>
+        ))}
+        {waypoints.length > 100 && (
+          <Typography variant="caption" sx={{ textAlign: 'center', display: 'block', color: 'text.secondary', py: 0.5 }}>
+            ... and {waypoints.length - 100} more points
+          </Typography>
+        )}
+      </List>
+    )}
+  </Paper>
+);
+
 export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
   currentConfig,
   onUpdateCoordinates,
@@ -77,7 +178,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           }
         }
       } catch {
-        // Fallback or offline dev server
+        // Dev server / offline fallback
       }
     };
 
@@ -85,7 +186,6 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     return () => clearInterval(interval);
   }, [onUpdateCoordinates]);
 
-  // Profile selection
   const handleProfileChange = (newProfile: RouteProfile) => {
     setProfile(newProfile);
     if (newProfile === 'walking') setSpeedKmh(5);
@@ -127,12 +227,10 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     setStatusMessage(null);
   };
 
-  // Start or resume headless simulation on the server
   const handleStartSimulation = async () => {
     if (waypoints.length < 2) return;
 
     if (isPlaying && !isPaused) {
-      // Pause
       try {
         await fetch('/api/route/pause', { method: 'POST' });
         setIsPaused(true);
@@ -143,7 +241,6 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     }
 
     if (isPlaying && isPaused) {
-      // Resume
       try {
         await fetch('/api/route/resume', { method: 'POST' });
         setIsPaused(false);
@@ -155,10 +252,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
     try {
       const payload = {
-        waypoints: waypoints.map((w) => ({
-          lat: w.lat,
-          lon: w.lon,
-        })),
+        waypoints: waypoints.map((w) => ({ lat: w.lat, lon: w.lon })),
         speed_kmh: speedKmh,
         is_looping: isLooping,
         profile: profile === 'walking' ? 'walking' : profile === 'cycling' ? 'cycling' : 'driving',
@@ -196,7 +290,6 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     setStatusMessage(null);
   };
 
-  // OSRM Road Snapping
   const handleSnapToRoads = async () => {
     if (waypoints.length < 2) {
       setStatusMessage('Add at least 2 waypoints before snapping to roads.');
@@ -246,7 +339,6 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     }
   };
 
-  // GPX File Upload
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -305,45 +397,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       </Box>
 
       {/* Cybernetic Telemetry Needle & Heading */}
-      <Paper variant="outlined" sx={{ p: 1.5, bgcolor: 'rgba(0, 229, 255, 0.04)', borderColor: 'rgba(0, 229, 255, 0.2)' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Box
-              sx={{
-                width: 36,
-                height: 36,
-                borderRadius: '50%',
-                bgcolor: 'background.paper',
-                border: '1px solid rgba(0, 229, 255, 0.4)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transform: `rotate(${currentHeading}deg)`,
-                transition: 'transform 0.4s ease-out',
-              }}
-            >
-              <NavigationIcon sx={{ color: 'primary.main', fontSize: 20 }} />
-            </Box>
-            <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                Course Over Ground (COG)
-              </Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700, color: 'primary.main', fontFamily: 'monospace' }}>
-                {currentHeading.toFixed(1)}°
-              </Typography>
-            </Box>
-          </Box>
-
-          <Box sx={{ textAlign: 'right' }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-              Kinematic Velocity
-            </Typography>
-            <Typography variant="body2" sx={{ fontWeight: 700, color: 'success.main', fontFamily: 'monospace' }}>
-              {activeSpeed.toFixed(1)} km/h ({(activeSpeed / 3.6).toFixed(1)} m/s)
-            </Typography>
-          </Box>
-        </Box>
-      </Paper>
+      <TelemetryGauge heading={currentHeading} speedKmh={activeSpeed} />
 
       {/* Profile Selector Buttons */}
       <ButtonGroup fullWidth size="small" variant="outlined">
@@ -477,55 +531,12 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       </Box>
 
       {/* Waypoints List */}
-      <Paper variant="outlined" sx={{ p: 1.5, maxHeight: 180, overflowY: 'auto' }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-          <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
-            Waypoints Queue ({waypoints.length})
-          </Typography>
-          <Box sx={{ display: 'flex', gap: 1 }}>
-            <Button size="small" startIcon={<AddLocationIcon />} onClick={handleAddWaypoint}>
-              Add Current
-            </Button>
-            {waypoints.length > 0 && (
-              <Button size="small" color="error" onClick={handleClearWaypoints}>
-                Clear
-              </Button>
-            )}
-          </Box>
-        </Box>
-
-        {waypoints.length === 0 ? (
-          <Typography variant="caption" sx={{ display: 'block', textAlign: 'center', py: 2, color: 'text.secondary' }}>
-            No waypoints yet. Move the map pin and click "Add Current" or click "Import GPX".
-          </Typography>
-        ) : (
-          <List dense disablePadding>
-            {waypoints.slice(0, 100).map((wp, index) => (
-              <ListItem
-                key={wp.id}
-                secondaryAction={
-                  <IconButton edge="end" size="small" onClick={() => handleRemoveWaypoint(wp.id)}>
-                    <DeleteIcon fontSize="small" />
-                  </IconButton>
-                }
-                sx={{ py: 0.3 }}
-              >
-                <ListItemText
-                  primary={`${index + 1}. ${wp.name || 'Waypoint'}`}
-                  secondary={`Lat: ${wp.lat.toFixed(5)}°, Lon: ${wp.lon.toFixed(5)}°`}
-                  primaryTypographyProps={{ fontSize: '0.8rem', fontWeight: 600 }}
-                  secondaryTypographyProps={{ fontSize: '0.7rem' }}
-                />
-              </ListItem>
-            ))}
-            {waypoints.length > 100 && (
-              <Typography variant="caption" sx={{ textAlign: 'center', display: 'block', color: 'text.secondary', py: 0.5 }}>
-                ... and {waypoints.length - 100} more points
-              </Typography>
-            )}
-          </List>
-        )}
-      </Paper>
+      <WaypointsQueue
+        waypoints={waypoints}
+        onAdd={handleAddWaypoint}
+        onRemove={handleRemoveWaypoint}
+        onClear={handleClearWaypoints}
+      />
     </Box>
   );
 };
