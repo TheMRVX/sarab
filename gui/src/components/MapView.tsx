@@ -110,7 +110,7 @@ export const MapView: React.FC<MapViewProps> = ({
         searchQuery
       )}&limit=1`;
       const res = await fetch(url, {
-        headers: { 'User-Agent': `Sarab-GNSS-Suite/${(import.meta as any).env?.PACKAGE_VERSION || '0.6.0'}` },
+        headers: { 'User-Agent': `Sarab-GNSS-Suite/${(import.meta as any).env?.PACKAGE_VERSION || '0.7.0'}` },
       });
       const data = await res.json();
       if (data && data.length > 0) {

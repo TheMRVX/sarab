@@ -141,6 +141,7 @@ pub fn parse_gpx(xml_content: &str) -> Result<Track> {
 }
 
 /// Serializes waypoints to standard GPX 1.1 format.
+#[allow(dead_code)]
 pub fn export_to_gpx(track: &Track) -> String {
     let name = track.name.as_deref().unwrap_or("Sarab Virtual Route");
     let mut gpx = String::new();

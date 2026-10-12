@@ -583,6 +583,56 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     }
                 }
 
+                (&Method::Get, "/api/service/status") => {
+                    let status = crate::service::win::query_service_api_status();
+                    let body = serde_json::to_string(&status).unwrap_or_default();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/service/action") => {
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+
+                    #[derive(Deserialize)]
+                    struct ServiceActionPayload {
+                        action: String,
+                        port: Option<u16>,
+                    }
+
+                    if let Ok(payload) = serde_json::from_str::<ServiceActionPayload>(&content) {
+                        let res = match payload.action.as_str() {
+                            "install" => crate::service::win::install_service(payload.port.unwrap_or(8090)),
+                            "uninstall" => crate::service::win::uninstall_service(),
+                            "start" => crate::service::win::start_service(),
+                            "stop" => crate::service::win::stop_service(),
+                            other => Err(anyhow::anyhow!("Unknown action: {}", other)),
+                        };
+
+                        if let Ok(()) = res {
+                            let ok_resp = Response::from_string("{\"status\":\"ok\"}")
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                            let _ = request.respond(ok_resp);
+                        } else {
+                            let err_msg = format!("{{\"error\":\"{}\"}}", res.unwrap_err().to_string().replace('"', "\\\""));
+                            let err_resp = Response::from_string(err_msg)
+                                .with_status_code(StatusCode(500))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                            let _ = request.respond(err_resp);
+                        }
+                    } else {
+                        let err_resp = Response::from_string("{\"error\":\"Invalid payload\"}")
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(err_resp);
+                    }
+                }
+
                 _ => {
                     let resp = Response::from_string("{\"error\":\"Endpoint not found\"}")
                         .with_status_code(StatusCode(404))
