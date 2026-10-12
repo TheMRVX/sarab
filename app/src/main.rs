@@ -11,6 +11,7 @@ mod route_runner;
 mod simple;
 mod web;
 pub mod wifi_shield;
+pub mod service;
 
 use anyhow::Result;
 use clap::Parser;
@@ -220,6 +221,28 @@ fn main() -> Result<()> {
                 let runner = route_runner::RouteRunner::new();
                 runner.stop();
                 println!("[+] Route simulation stopped.");
+            }
+        },
+
+        Commands::Service(args) => match args.action {
+            cli::ServiceAction::Install { port } => {
+                service::win::install_service(port)?;
+            }
+            cli::ServiceAction::Uninstall => {
+                service::win::uninstall_service()?;
+            }
+            cli::ServiceAction::Start => {
+                service::win::start_service()?;
+            }
+            cli::ServiceAction::Stop => {
+                service::win::stop_service()?;
+            }
+            cli::ServiceAction::Status => {
+                service::win::query_service_status()?;
+            }
+            cli::ServiceAction::Run { port } => {
+                service::win::set_service_run_port(port);
+                service::win::run_service()?;
             }
         },
     }

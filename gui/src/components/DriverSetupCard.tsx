@@ -20,6 +20,7 @@ import LockOpenIcon from '@mui/icons-material/LockOpen';
 import PrivacyTipIcon from '@mui/icons-material/PrivacyTip';
 import BuildIcon from '@mui/icons-material/Build';
 import { SecurityShield } from './SecurityShield';
+import { ServiceManagerCard } from './ServiceManagerCard';
 import { SystemStatus } from '../types';
 
 interface DriverSetupCardProps {
@@ -134,6 +135,9 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
 
       {/* Windows Location Authority & Anti-Rubberband Shield */}
       <SecurityShield />
+
+      {/* Windows Background Service Daemon */}
+      <ServiceManagerCard />
 
       {/* Troubleshooting PowerShell helpers */}
       <Accordion

@@ -44,6 +44,9 @@ pub enum Commands {
 
     /// Play, plan, or manage dynamic route simulations headlessly
     Route(RouteArgs),
+
+    /// Manage the headless Windows background service (install / uninstall / start / stop / status / run)
+    Service(ServiceArgs),
 }
 
 #[derive(Args, Debug)]
@@ -150,4 +153,40 @@ pub struct RoutePlayArgs {
     #[arg(short, long)]
     pub loop_route: bool,
 }
+
+#[derive(Args, Debug)]
+pub struct ServiceArgs {
+    #[command(subcommand)]
+    pub action: ServiceAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum ServiceAction {
+    /// Install Sarab as an auto-start Windows Service
+    Install {
+        /// HTTP port for the background web dashboard (default: 8090)
+        #[arg(short, long, default_value_t = 8090)]
+        port: u16,
+    },
+
+    /// Uninstall and remove the Sarab Windows Service
+    Uninstall,
+
+    /// Start the Sarab Windows Service
+    Start,
+
+    /// Stop the Sarab Windows Service
+    Stop,
+
+    /// Query the status of the Sarab Windows Service
+    Status,
+
+    /// Run the service dispatcher (internal, called by Windows SCM)
+    Run {
+        /// HTTP port for the web dashboard (default: 8090)
+        #[arg(short, long, default_value_t = 8090)]
+        port: u16,
+    },
+}
+
 
