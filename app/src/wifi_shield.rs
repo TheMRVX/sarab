@@ -17,7 +17,9 @@ pub struct ShieldStatus {
 #[cfg(windows)]
 pub fn get_rtk_shield_enabled() -> bool {
     use windows::core::HSTRING;
-    use windows::Win32::System::Registry::{RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ, REG_DWORD};
+    use windows::Win32::System::Registry::{
+        RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_READ,
+    };
 
     let subkey = HSTRING::from(crate::driver_comm::DRIVER_REG_PATH);
     let mut hkey: HKEY = Default::default();
@@ -31,16 +33,17 @@ pub fn get_rtk_shield_enabled() -> bool {
         let name = HSTRING::from("RtkShield");
         let mut val: u32 = 0;
         let mut val_size: u32 = std::mem::size_of::<u32>() as u32;
-        let mut val_type: REG_DWORD = Default::default();
 
         let query_res = RegQueryValueExW(
             hkey,
             &name,
             None,
-            Some(&mut val_type),
+            None,
             Some(&mut val as *mut u32 as *mut u8),
             Some(&mut val_size),
         );
+
+        let _ = RegCloseKey(hkey);
 
         if query_res.is_ok() {
             val != 0
@@ -59,8 +62,8 @@ pub fn get_rtk_shield_enabled() -> bool {
 pub fn set_rtk_shield_enabled(enabled: bool) -> Result<()> {
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
-        RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
-        REG_OPTION_NON_VOLATILE,
+        RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE,
+        REG_DWORD, REG_OPTION_NON_VOLATILE,
     };
 
     let subkey = HSTRING::from(crate::driver_comm::DRIVER_REG_PATH);
@@ -84,9 +87,11 @@ pub fn set_rtk_shield_enabled(enabled: bool) -> Result<()> {
 
         let name = HSTRING::from("RtkShield");
         let val: u32 = if enabled { 1 } else { 0 };
-        let slice = std::slice::from_raw_parts(&val as *const u32 as *const u8, std::mem::size_of::<u32>());
+        let bytes = val.to_ne_bytes();
 
-        let res = RegSetValueExW(hkey, &name, 0, REG_DWORD, Some(slice));
+        let res = RegSetValueExW(hkey, &name, 0, REG_DWORD, Some(&bytes));
+        let _ = RegCloseKey(hkey);
+
         if res.is_err() {
             return Err(anyhow::anyhow!("Failed to write RtkShield registry value: {:?}", res));
         }
