@@ -131,10 +131,22 @@ fn get_current_telemetry(route_runner: &crate::route_runner::RouteRunner) -> (f6
 
 pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     let addr = format!("{}:{}", host, port);
-    let server = Server::http(&addr)
-        .map_err(|e| anyhow::anyhow!("Failed to bind HTTP server to {}: {}", addr, e))?;
-
     let local_url = format!("http://localhost:{}", port);
+    let server = match Server::http(&addr) {
+        Ok(s) => s,
+        Err(e) => {
+            if std::net::TcpStream::connect(&addr).is_ok() {
+                println!("\n========================================================");
+                println!("  Sarab Virtual GNSS Service is already active on {}", addr);
+                println!("  Opening dashboard in web browser: {}", local_url);
+                println!("========================================================\n");
+                open_browser(&local_url);
+                return Ok(());
+            }
+            return Err(anyhow::anyhow!("Failed to bind HTTP server to {}: {}", addr, e));
+        }
+    };
+
     println!("\n========================================================");
     println!("  Sarab Virtual GNSS Web Control Dashboard");
     println!("  URL: {}", local_url);
