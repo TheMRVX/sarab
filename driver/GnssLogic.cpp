@@ -159,6 +159,7 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Accuracy          = ReadRegistryUlong(hKey, L"Accuracy", config->Accuracy);
     config->Heading           = ReadRegistryDouble(hKey, L"Heading", config->Heading);
     config->Speed             = ReadRegistryDouble(hKey, L"Speed", config->Speed);
+    config->RtkShieldEnabled  = ReadRegistryBool(hKey, L"RtkShield", TRUE);
 
     if (config->Heading < 0.0) config->Heading = 0.0;
     while (config->Heading >= 360.0) config->Heading -= 360.0;
@@ -212,34 +213,53 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
 {
     pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
     pAccData->Version = GNSS_DRIVER_VERSION_1;
-    pAccData->HorizontalAccuracy = config->Accuracy;
-    pAccData->AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
-    pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
-    pAccData->SpeedAccuracy = 1;
-    pAccData->HorizontalConfidence = 95;
-    pAccData->AltitudeConfidence = 95;
-    pAccData->HeadingConfidence = 95;
-    pAccData->SpeedConfidence = 95;
-    pAccData->PositionDilutionOfPrecision = (float)sqrt(hdop * hdop + vdop * vdop);
-    pAccData->HorizontalDilutionOfPrecision = hdop;
-    pAccData->VerticalDilutionOfPrecision = vdop;
+
+    if (config->RtkShieldEnabled) {
+        // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
+        pAccData->HorizontalAccuracy = 1;
+        pAccData->AltitudeAccuracy = 1;
+        pAccData->HeadingAccuracy = 2;
+        pAccData->SpeedAccuracy = 1;
+        pAccData->HorizontalConfidence = 99;
+        pAccData->AltitudeConfidence = 99;
+        pAccData->HeadingConfidence = 99;
+        pAccData->SpeedConfidence = 99;
+        pAccData->HorizontalDilutionOfPrecision = (hdop < 0.6f) ? hdop : 0.6f;
+        pAccData->VerticalDilutionOfPrecision = (vdop < 0.8f) ? vdop : 0.8f;
+    } else {
+        pAccData->HorizontalAccuracy = config->Accuracy;
+        pAccData->AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
+        pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
+        pAccData->SpeedAccuracy = 1;
+        pAccData->HorizontalConfidence = 95;
+        pAccData->AltitudeConfidence = 95;
+        pAccData->HeadingConfidence = 95;
+        pAccData->SpeedConfidence = 95;
+        pAccData->HorizontalDilutionOfPrecision = hdop;
+        pAccData->VerticalDilutionOfPrecision = vdop;
+    }
+
+    pAccData->PositionDilutionOfPrecision = (float)sqrt(
+        pAccData->HorizontalDilutionOfPrecision * pAccData->HorizontalDilutionOfPrecision +
+        pAccData->VerticalDilutionOfPrecision * pAccData->VerticalDilutionOfPrecision
+    );
 }
 
 static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData)
 {
     pSatData->Size = sizeof(GNSS_FIXDATA_SATELLITE);
     pSatData->Version = GNSS_DRIVER_VERSION_1;
-    pSatData->SatelliteCount = 4;
-    for (ULONG i = 0; i < 4; i++) {
+    pSatData->SatelliteCount = 12;
+    for (ULONG i = 0; i < 12; i++) {
         pSatData->SatelliteArray[i].SatelliteId = i + 1;
         pSatData->SatelliteArray[i].UsedInPositiong = TRUE;
-        double elevation = 35.0 + i * 15.0;
+        double elevation = 25.0 + (double)((i * 17) % 65);
         pSatData->SatelliteArray[i].Elevation = elevation;
-        pSatData->SatelliteArray[i].Azimuth = 45.0 + i * 75.0;
+        pSatData->SatelliteArray[i].Azimuth = (double)(i * 30 + 15);
 
         double radElev = elevation * (M_PI / 180.0);
-        double baseSnr = 28.0 + 15.0 * sin(radElev);
-        double scint = ((double)(i % 3) - 1.0) * 0.7;
+        double baseSnr = 35.0 + 10.0 * sin(radElev);
+        double scint = ((double)(i % 3) - 1.0) * 0.5;
         pSatData->SatelliteArray[i].SignalToNoiseRatio = baseSnr + scint;
     }
 }

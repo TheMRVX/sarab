@@ -12,6 +12,7 @@ struct SpoofConfig {
     double DriftRadiusMeters;
     double Heading;
     double Speed;
+    BOOL   RtkShieldEnabled;
 };
 
 // Reads the current configuration from registry parameters

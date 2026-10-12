@@ -550,6 +550,38 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     let _ = request.respond(resp);
                 }
 
+                (&Method::Get, "/api/shield/status") => {
+                    let status = crate::wifi_shield::query_shield_status();
+                    let body = serde_json::to_string(&status).unwrap_or_default();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/shield/toggle") => {
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+
+                    #[derive(Deserialize)]
+                    struct ShieldTogglePayload {
+                        enabled: bool,
+                    }
+
+                    if let Ok(payload) = serde_json::from_str::<ShieldTogglePayload>(&content) {
+                        let _ = crate::wifi_shield::set_rtk_shield_enabled(payload.enabled);
+                        let ok_resp = Response::from_string("{\"status\":\"ok\"}")
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(ok_resp);
+                    } else {
+                        let err_resp = Response::from_string("{\"error\":\"Invalid shield payload\"}")
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(err_resp);
+                    }
+                }
 
                 _ => {
                     let resp = Response::from_string("{\"error\":\"Endpoint not found\"}")
