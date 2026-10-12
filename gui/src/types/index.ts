@@ -53,6 +53,7 @@ export interface RouteSettings {
 export interface SatelliteInfo {
   id: number;
   prn: number;
+  constellation?: string;
   elevation: number;
   azimuth: number;
   snr: number;

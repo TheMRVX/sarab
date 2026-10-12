@@ -60,7 +60,7 @@ export const Header: React.FC<HeaderProps> = ({
             <Typography variant="h6" sx={{ lineHeight: 1.1, fontWeight: 700 }}>
               SARAB{' '}
               <Typography component="span" variant="caption" sx={{ color: 'primary.main', fontWeight: 600 }}>
-                {status?.version ? `v${status.version}-beta` : `v${(import.meta as any).env?.PACKAGE_VERSION || '0.4.0'}-beta`}
+                {status?.version ? `v${status.version}-beta` : `v${(import.meta as any).env?.PACKAGE_VERSION || '0.5.0'}-beta`}
               </Typography>
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: { xs: 'none', sm: 'block' } }}>

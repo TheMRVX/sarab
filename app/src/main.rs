@@ -4,6 +4,8 @@ mod driver_comm;
 mod gpx;
 mod installer;
 mod kinematics;
+pub mod nmea;
+pub mod nmea_broadcaster;
 mod reader;
 mod route_runner;
 mod simple;
