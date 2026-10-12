@@ -110,7 +110,7 @@ export const MapView: React.FC<MapViewProps> = ({
         searchQuery
       )}&limit=1`;
       const res = await fetch(url, {
-        headers: { 'User-Agent': 'Sarab-GNSS-Suite/0.2.0' },
+        headers: { 'User-Agent': `Sarab-GNSS-Suite/${(import.meta as any).env?.PACKAGE_VERSION || '0.3.0'}` },
       });
       const data = await res.json();
       if (data && data.length > 0) {
@@ -240,11 +240,12 @@ export const MapView: React.FC<MapViewProps> = ({
         zoom={14}
         style={{ height: '100%', width: '100%', backgroundColor: '#0a0e14' }}
       >
-        {/* CartoDB Dark Matter tiles (matching dark theme) */}
+        {/* OpenStreetMap tiles (100% free, no API key required) */}
         <TileLayer
-          attribution='&copy; <a href="https://carto.com/">CARTO</a> &copy; <a href="https://openstreetmap.org">OSM</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
           maxZoom={19}
+          className="dark-tile-layer"
         />
 
         <MapRecenter lat={latitude} lon={longitude} />
