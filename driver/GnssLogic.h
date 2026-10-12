@@ -13,6 +13,7 @@ struct SpoofConfig {
     double Heading;
     double Speed;
     BOOL   RtkShieldEnabled;
+    ULONG  EnvironmentMode;
 };
 
 // Reads the current configuration from registry parameters

@@ -12,6 +12,7 @@ mod simple;
 mod web;
 pub mod wifi_shield;
 pub mod service;
+pub mod dead_reckoning;
 
 use anyhow::Result;
 use clap::Parser;

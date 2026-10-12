@@ -633,6 +633,45 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     }
                 }
 
+                (&Method::Get, "/api/environment/status") => {
+                    let engine = crate::dead_reckoning::get_engine();
+                    let state = engine.lock().unwrap().query_state();
+                    let body = serde_json::to_string(&state).unwrap_or_default();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/environment/set") => {
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+
+                    #[derive(Deserialize)]
+                    struct EnvironmentPayload {
+                        mode: crate::dead_reckoning::EnvironmentMode,
+                    }
+
+                    if let Ok(payload) = serde_json::from_str::<EnvironmentPayload>(&content) {
+                        let engine = crate::dead_reckoning::get_engine();
+                        engine.lock().unwrap().set_mode(payload.mode);
+                        let _ = crate::dead_reckoning::set_driver_environment_mode(payload.mode);
+
+                        let state = engine.lock().unwrap().query_state();
+                        let body = serde_json::to_string(&state).unwrap_or_default();
+                        let resp = Response::from_string(body)
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(resp);
+                    } else {
+                        let err_resp = Response::from_string("{\"error\":\"Invalid environment payload\"}")
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(err_resp);
+                    }
+                }
+
                 _ => {
                     let resp = Response::from_string("{\"error\":\"Endpoint not found\"}")
                         .with_status_code(StatusCode(404))
