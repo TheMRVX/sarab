@@ -22,6 +22,7 @@ export interface SystemStatus {
   bitlocker: string;
   driverInstalled: boolean;
   driverRunning: boolean;
+  version?: string;
 }
 
 export interface LiveLocation {

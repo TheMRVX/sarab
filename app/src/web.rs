@@ -81,6 +81,8 @@ pub struct SystemStatusResponse {
     pub driver_installed: bool,
     #[serde(rename = "driverRunning")]
     pub driver_running: bool,
+    #[serde(default)]
+    pub version: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -259,6 +261,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         bitlocker,
                         driver_installed: true,
                         driver_running: true,
+                        version: env!("CARGO_PKG_VERSION").to_string(),
                     };
 
                     let body = serde_json::to_string(&status_resp).unwrap_or_default();
