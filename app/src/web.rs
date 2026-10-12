@@ -85,10 +85,11 @@ pub struct SystemStatusResponse {
     pub version: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SatelliteTelemetry {
     pub id: u32,
     pub prn: u32,
+    pub constellation: String,
     pub elevation: f64,
     pub azimuth: f64,
     pub snr: f64,
@@ -109,6 +110,22 @@ pub fn open_browser(url: &str) {
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    }
+}
+
+fn get_current_telemetry(route_runner: &crate::route_runner::RouteRunner) -> (f64, f64, f64, f64, f64) {
+    let r_status = route_runner.get_status();
+    if r_status.is_running {
+        (
+            r_status.current_lat,
+            r_status.current_lon,
+            r_status.current_alt,
+            r_status.current_speed_kmh,
+            r_status.current_heading,
+        )
+    } else {
+        let cfg = crate::config::load_local_config();
+        (cfg.lat, cfg.lon, cfg.alt, 0.0, 0.0)
     }
 }
 
@@ -142,6 +159,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     .unwrap();
 
     let route_runner = crate::route_runner::RouteRunner::new();
+    let nmea_broadcaster = crate::nmea_broadcaster::NmeaBroadcaster::new();
+    nmea_broadcaster.start_udp_broadcast(10110);
 
     for mut request in server.incoming_requests() {
         let url_path = request.url().split('?').next().unwrap_or("/").to_string();
@@ -297,14 +316,31 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 }
 
                 (&Method::Get, "/api/satellites") => {
-                    let sats = vec![
-                        SatelliteTelemetry { id: 1, prn: 12, elevation: 65.0, azimuth: 120.0, snr: 42.5, used: true },
-                        SatelliteTelemetry { id: 2, prn: 19, elevation: 48.0, azimuth: 230.0, snr: 39.0, used: true },
-                        SatelliteTelemetry { id: 3, prn: 24, elevation: 32.0, azimuth: 45.0, snr: 35.2, used: true },
-                        SatelliteTelemetry { id: 4, prn: 28, elevation: 78.0, azimuth: 310.0, snr: 44.1, used: true },
-                        SatelliteTelemetry { id: 5, prn: 6, elevation: 18.0, azimuth: 195.0, snr: 29.8, used: false },
-                    ];
-                    let body = serde_json::to_string(&sats).unwrap_or_default();
+                    let (lat, lon, alt, speed_kmh, heading_deg) = get_current_telemetry(&route_runner);
+                    let epoch_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(1700000000);
+                    let (sentences, satellites) = crate::nmea::generate_nmea_bundle(
+                        lat, lon, alt, speed_kmh, heading_deg, epoch_secs,
+                    );
+                    nmea_broadcaster.update_sentences(sentences);
+
+                    let telemetry_sats: Vec<SatelliteTelemetry> = satellites
+                        .into_iter()
+                        .enumerate()
+                        .map(|(i, s)| SatelliteTelemetry {
+                            id: (i + 1) as u32,
+                            prn: s.prn,
+                            constellation: format!("{:?}", s.constellation),
+                            elevation: s.elevation as f64,
+                            azimuth: s.azimuth as f64,
+                            snr: s.snr as f64,
+                            used: s.used_in_fix,
+                        })
+                        .collect();
+
+                    let body = serde_json::to_string(&telemetry_sats).unwrap_or_default();
                     let resp = Response::from_string(body)
                         .with_header(json_header)
                         .with_header(cors_header.clone());
@@ -483,6 +519,37 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         let _ = request.respond(resp);
                     }
                 }
+
+                (&Method::Get, "/api/nmea/latest") => {
+                    let (lat, lon, alt, speed_kmh, heading_deg) = get_current_telemetry(&route_runner);
+                    let epoch_secs = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(1700000000);
+                    let (sentences, _) = crate::nmea::generate_nmea_bundle(
+                        lat, lon, alt, speed_kmh, heading_deg, epoch_secs,
+                    );
+                    nmea_broadcaster.update_sentences(sentences.clone());
+
+                    #[derive(Serialize)]
+                    struct NmeaResponse {
+                        sentences: Vec<String>,
+                        udp_port: u16,
+                        tcp_port: u16,
+                    }
+
+                    let resp_data = NmeaResponse {
+                        sentences,
+                        udp_port: 10110,
+                        tcp_port: 10111,
+                    };
+                    let body = serde_json::to_string(&resp_data).unwrap_or_default();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
 
                 _ => {
                     let resp = Response::from_string("{\"error\":\"Endpoint not found\"}")

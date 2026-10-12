@@ -140,13 +140,16 @@ export const api = {
         return await invoke<SatelliteInfo[]>('get_satellites');
       } catch {}
     }
-    // Realistic satellite constellation simulation
+    try {
+      const res = await fetch('/api/satellites');
+      if (res.ok) return await res.json();
+    } catch {}
+    // Fallback simulation
     return [
-      { id: 1, prn: 12, elevation: 65, azimuth: 120, snr: 42.5, used: true },
-      { id: 2, prn: 19, elevation: 48, azimuth: 230, snr: 39.0, used: true },
-      { id: 3, prn: 24, elevation: 32, azimuth: 45, snr: 35.2, used: true },
-      { id: 4, prn: 28, elevation: 78, azimuth: 310, snr: 44.1, used: true },
-      { id: 5, prn: 6, elevation: 18, azimuth: 195, snr: 29.8, used: false },
+      { id: 1, prn: 1, constellation: 'GPS', elevation: 65, azimuth: 120, snr: 42.5, used: true },
+      { id: 2, prn: 65, constellation: 'GLONASS', elevation: 48, azimuth: 230, snr: 39.0, used: true },
+      { id: 3, prn: 2, constellation: 'Galileo', elevation: 32, azimuth: 45, snr: 35.2, used: true },
+      { id: 4, prn: 6, constellation: 'BeiDou', elevation: 78, azimuth: 310, snr: 44.1, used: true },
     ];
   },
 };
