@@ -1,8 +1,11 @@
 mod cli;
 mod config;
 mod driver_comm;
+mod gpx;
 mod installer;
+mod kinematics;
 mod reader;
+mod route_runner;
 mod simple;
 mod web;
 
@@ -160,6 +163,62 @@ fn main() -> Result<()> {
         Commands::Gui(args) | Commands::Web(args) => {
             web::start_server(&args.host, args.port, args.open)?;
         }
+
+        Commands::Route(args) => match args.action {
+            cli::RouteAction::Play(play_args) => {
+                let xml = std::fs::read_to_string(&play_args.file)
+                    .map_err(|e| anyhow::anyhow!("Failed to read GPX file '{}': {}", play_args.file, e))?;
+                let track = gpx::parse_gpx(&xml)?;
+                println!(
+                    "[+] Successfully loaded GPX track: '{}' with {} waypoints ({:.2} km)",
+                    track.name.as_deref().unwrap_or("Unnamed"),
+                    track.waypoints.len(),
+                    track.total_distance_meters / 1000.0
+                );
+
+                let runner = route_runner::RouteRunner::new();
+                runner.start(
+                    track.waypoints,
+                    play_args.speed,
+                    play_args.loop_route,
+                    route_runner::RouteProfile::Driving,
+                )?;
+
+                println!(
+                    "[+] Headless route simulation started at {:.1} km/h (loop: {})",
+                    play_args.speed, play_args.loop_route
+                );
+                println!("[*] Press Ctrl+C to terminate simulation.\n");
+
+                while runner.get_status().is_running {
+                    let st = runner.get_status();
+                    print!(
+                        "\r[*] Progress: {:.1}% | Pos: ({:.6}°, {:.6}°) | Heading: {:.1}° | Speed: {:.1} km/h   ",
+                        st.progress_percent,
+                        st.current_lat,
+                        st.current_lon,
+                        st.current_heading,
+                        st.current_speed_kmh
+                    );
+                    let _ = std::io::Write::flush(&mut std::io::stdout());
+                    std::thread::sleep(std::time::Duration::from_millis(1000));
+                }
+                println!("\n[+] Route simulation completed.");
+            }
+            cli::RouteAction::Status => {
+                let cfg = driver_comm::get_driver_parameters()?;
+                println!("=== Current Driver Telemetry ===");
+                println!("Latitude:  {:.7}°", cfg.lat);
+                println!("Longitude: {:.7}°", cfg.lon);
+                println!("Altitude:  {:.2} m", cfg.alt);
+                println!("Enabled:   {}", cfg.enabled);
+            }
+            cli::RouteAction::Stop => {
+                let runner = route_runner::RouteRunner::new();
+                runner.stop();
+                println!("[+] Route simulation stopped.");
+            }
+        },
     }
 
     Ok(())

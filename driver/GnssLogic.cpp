@@ -138,6 +138,8 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Enabled = TRUE;
     config->DriftEnabled = TRUE;
     config->DriftRadiusMeters = 1.2;
+    config->Heading = 0.0;
+    config->Speed = 0.0;
 
     HKEY hKey = NULL;
     LONG status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, SARAB_REG_PARAMS_PATH, 0, KEY_READ, &hKey);
@@ -155,12 +157,91 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Longitude         = ReadRegistryDouble(hKey, L"Longitude", config->Longitude);
     config->Altitude          = ReadRegistryDouble(hKey, L"Altitude", config->Altitude);
     config->Accuracy          = ReadRegistryUlong(hKey, L"Accuracy", config->Accuracy);
+    config->Heading           = ReadRegistryDouble(hKey, L"Heading", config->Heading);
+    config->Speed             = ReadRegistryDouble(hKey, L"Speed", config->Speed);
+
+    if (config->Heading < 0.0) config->Heading = 0.0;
+    while (config->Heading >= 360.0) config->Heading -= 360.0;
+    if (config->Speed < 0.0) config->Speed = 0.0;
 
     RegCloseKey(hKey);
 
-    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%u, Enabled=%d, Drift=%d(%.1fm)",
+    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%u, Enabled=%d, Drift=%d(%.1fm), Heading=%.1f, Speed=%.1fm/s",
         config->Latitude, config->Longitude, config->Altitude, config->Accuracy, config->Enabled,
-        config->DriftEnabled, config->DriftRadiusMeters);
+        config->DriftEnabled, config->DriftRadiusMeters, config->Heading, config->Speed);
+}
+
+static void CalculateDriftedPosition(const SpoofConfig* config, double* outLat, double* outLon, double* outAlt, float* outHdop, float* outVdop)
+{
+    *outLat = config->Latitude;
+    *outLon = config->Longitude;
+    *outAlt = config->Altitude;
+    *outHdop = 1.0f;
+    *outVdop = 1.3f;
+
+    if (!config->DriftEnabled || config->DriftRadiusMeters <= 0.001) {
+        return;
+    }
+
+    double dNorth = 0.0, dEast = 0.0, dUp = 0.0;
+    UpdateDrift(config->DriftRadiusMeters, &dNorth, &dEast, &dUp);
+
+    const double metersPerDegreeLat = 111132.95;
+    double radLat = config->Latitude * (M_PI / 180.0);
+    double cosLat = cos(radLat);
+    if (fabs(cosLat) < 0.01) cosLat = 0.01;
+    double metersPerDegreeLon = 111132.95 * cosLat;
+
+    *outLat += dNorth / metersPerDegreeLat;
+    *outLon += dEast / metersPerDegreeLon;
+    *outAlt += dUp;
+
+    if (*outLat > 90.0) *outLat = 90.0;
+    if (*outLat < -90.0) *outLat = -90.0;
+    while (*outLon > 180.0) *outLon -= 360.0;
+    while (*outLon < -180.0) *outLon += 360.0;
+
+    double offsetDist = sqrt(dNorth * dNorth + dEast * dEast);
+    *outHdop = (float)(0.9 + 0.3 * (offsetDist / config->DriftRadiusMeters));
+    if (*outHdop < 0.8f) *outHdop = 0.8f;
+    if (*outHdop > 2.2f) *outHdop = 2.2f;
+    *outVdop = *outHdop * 1.3f;
+}
+
+static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofConfig* config, float hdop, float vdop)
+{
+    pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
+    pAccData->Version = GNSS_DRIVER_VERSION_1;
+    pAccData->HorizontalAccuracy = config->Accuracy;
+    pAccData->AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
+    pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
+    pAccData->SpeedAccuracy = 1;
+    pAccData->HorizontalConfidence = 95;
+    pAccData->AltitudeConfidence = 95;
+    pAccData->HeadingConfidence = 95;
+    pAccData->SpeedConfidence = 95;
+    pAccData->PositionDilutionOfPrecision = (float)sqrt(hdop * hdop + vdop * vdop);
+    pAccData->HorizontalDilutionOfPrecision = hdop;
+    pAccData->VerticalDilutionOfPrecision = vdop;
+}
+
+static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData)
+{
+    pSatData->Size = sizeof(GNSS_FIXDATA_SATELLITE);
+    pSatData->Version = GNSS_DRIVER_VERSION_1;
+    pSatData->SatelliteCount = 4;
+    for (ULONG i = 0; i < 4; i++) {
+        pSatData->SatelliteArray[i].SatelliteId = i + 1;
+        pSatData->SatelliteArray[i].UsedInPositiong = TRUE;
+        double elevation = 35.0 + i * 15.0;
+        pSatData->SatelliteArray[i].Elevation = elevation;
+        pSatData->SatelliteArray[i].Azimuth = 45.0 + i * 75.0;
+
+        double radElev = elevation * (M_PI / 180.0);
+        double baseSnr = 28.0 + 15.0 * sin(radElev);
+        double scint = ((double)(i % 3) - 1.0) * 0.7;
+        pSatData->SatelliteArray[i].SignalToNoiseRatio = baseSnr + scint;
+    }
 }
 
 NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config)
@@ -183,7 +264,6 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     }
 
     RtlZeroMemory(pEvent, sizeof(GNSS_EVENT));
-
     pEvent->Size = sizeof(GNSS_EVENT);
     pEvent->Version = GNSS_DRIVER_VERSION_1;
     pEvent->EventType = GNSS_Event_FixAvailable;
@@ -198,79 +278,20 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     pFixData->FixStatus = STATUS_SUCCESS;
     pFixData->FixLevelOfDetails = GNSS_FIXDETAIL_BASIC | GNSS_FIXDETAIL_ACCURACY | GNSS_FIXDETAIL_SATELLITE;
 
-    // Natural drift calculations
-    double finalLat = config->Latitude;
-    double finalLon = config->Longitude;
-    double finalAlt = config->Altitude;
-    float hdop = 1.0f;
-    float vdop = 1.3f;
+    double finalLat = 0.0, finalLon = 0.0, finalAlt = 0.0;
+    float hdop = 1.0f, vdop = 1.3f;
+    CalculateDriftedPosition(config, &finalLat, &finalLon, &finalAlt, &hdop, &vdop);
 
-    if (config->DriftEnabled && config->DriftRadiusMeters > 0.001) {
-        double dNorth = 0.0, dEast = 0.0, dUp = 0.0;
-        UpdateDrift(config->DriftRadiusMeters, &dNorth, &dEast, &dUp);
-
-        // Convert displacement in meters to degrees
-        const double metersPerDegreeLat = 111132.95;
-        double radLat = config->Latitude * (M_PI / 180.0);
-        double cosLat = cos(radLat);
-        if (fabs(cosLat) < 0.01) cosLat = 0.01;
-        double metersPerDegreeLon = 111132.95 * cosLat;
-
-        finalLat += dNorth / metersPerDegreeLat;
-        finalLon += dEast / metersPerDegreeLon;
-        finalAlt += dUp;
-
-        // Clamp latitude to [-90.0, 90.0] and wrap longitude to [-180.0, 180.0]
-        if (finalLat > 90.0) finalLat = 90.0;
-        if (finalLat < -90.0) finalLat = -90.0;
-        while (finalLon > 180.0) finalLon -= 360.0;
-        while (finalLon < -180.0) finalLon += 360.0;
-
-        // Dynamic HDOP/VDOP based on normalized displacement
-        double offsetDist = sqrt(dNorth * dNorth + dEast * dEast);
-        hdop = (float)(0.9 + 0.3 * (offsetDist / config->DriftRadiusMeters));
-        if (hdop < 0.8f) hdop = 0.8f;
-        if (hdop > 2.2f) hdop = 2.2f;
-        vdop = hdop * 1.3f;
-    }
-
-    // Basic fix data
     pFixData->BasicData.Size = sizeof(GNSS_FIXDATA_BASIC);
     pFixData->BasicData.Version = GNSS_DRIVER_VERSION_1;
     pFixData->BasicData.Latitude = finalLat;
     pFixData->BasicData.Longitude = finalLon;
     pFixData->BasicData.Altitude = finalAlt;
-    pFixData->BasicData.Speed = 0.0;
-    pFixData->BasicData.Heading = 0.0;
+    pFixData->BasicData.Speed = config->Speed;
+    pFixData->BasicData.Heading = config->Heading;
 
-    // Accuracy data
-    pFixData->AccuracyData.Size = sizeof(GNSS_FIXDATA_ACCURACY);
-    pFixData->AccuracyData.Version = GNSS_DRIVER_VERSION_1;
-    pFixData->AccuracyData.HorizontalAccuracy = config->Accuracy;
-    pFixData->AccuracyData.AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
-    pFixData->AccuracyData.HorizontalConfidence = 95;
-    pFixData->AccuracyData.AltitudeConfidence = 95;
-    pFixData->AccuracyData.PositionDilutionOfPrecision = (float)sqrt(hdop * hdop + vdop * vdop);
-    pFixData->AccuracyData.HorizontalDilutionOfPrecision = hdop;
-    pFixData->AccuracyData.VerticalDilutionOfPrecision = vdop;
-
-    // Satellite telemetry data (simulate 4 locked GPS satellites with realistic elevation-dependent SNR)
-    pFixData->SatelliteData.Size = sizeof(GNSS_FIXDATA_SATELLITE);
-    pFixData->SatelliteData.Version = GNSS_DRIVER_VERSION_1;
-    pFixData->SatelliteData.SatelliteCount = 4;
-    for (ULONG i = 0; i < 4; i++) {
-        pFixData->SatelliteData.SatelliteArray[i].SatelliteId = i + 1;
-        pFixData->SatelliteData.SatelliteArray[i].UsedInPositiong = TRUE;
-        double elevation = 35.0 + i * 15.0; // 35, 50, 65, 80 degrees
-        pFixData->SatelliteData.SatelliteArray[i].Elevation = elevation;
-        pFixData->SatelliteData.SatelliteArray[i].Azimuth = 45.0 + i * 75.0;
-
-        // Elevation-dependent SNR with micro-scintillation (28 to 44 dB-Hz)
-        double radElev = elevation * (M_PI / 180.0);
-        double baseSnr = 28.0 + 15.0 * sin(radElev);
-        double scint = ((double)(i % 3) - 1.0) * 0.7;
-        pFixData->SatelliteData.SatelliteArray[i].SignalToNoiseRatio = baseSnr + scint;
-    }
+    PopulateAccuracyData(&pFixData->AccuracyData, config, hdop, vdop);
+    PopulateSatelliteTelemetry(&pFixData->SatelliteData);
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_EVENT));
     TraceEvents(0, 0, "Completed GNSS_EVENT Fix for Session %u: Lat=%.7f Lon=%.7f Alt=%.2f Acc=%u HDOP=%.2f",

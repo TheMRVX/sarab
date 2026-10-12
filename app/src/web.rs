@@ -141,6 +141,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     )
     .unwrap();
 
+    let route_runner = crate::route_runner::RouteRunner::new();
+
     for mut request in server.incoming_requests() {
         let url_path = request.url().split('?').next().unwrap_or("/").to_string();
 
@@ -307,6 +309,179 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         .with_header(json_header)
                         .with_header(cors_header.clone());
                     let _ = request.respond(resp);
+                }
+
+                (&Method::Get, "/api/route/status") => {
+                    let st = route_runner.get_status();
+                    let body = serde_json::to_string(&st).unwrap_or_default();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/route/start") => {
+                    #[derive(Deserialize)]
+                    struct StartRouteRequest {
+                        waypoints: Vec<crate::gpx::Waypoint>,
+                        #[serde(default = "default_speed")]
+                        speed_kmh: f64,
+                        #[serde(default)]
+                        is_looping: bool,
+                        #[serde(default)]
+                        profile: crate::route_runner::RouteProfile,
+                    }
+                    fn default_speed() -> f64 { 40.0 }
+
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+                    if let Ok(req) = serde_json::from_str::<StartRouteRequest>(&content) {
+                        match route_runner.start(req.waypoints, req.speed_kmh, req.is_looping, req.profile) {
+                            Ok(_) => {
+                                let resp = Response::from_string("{\"status\":\"ok\"}")
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                            }
+                            Err(e) => {
+                                let resp = Response::from_string(format!("{{\"error\":\"{}\"}}", e))
+                                    .with_status_code(StatusCode(400))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                            }
+                        }
+                    } else {
+                        let resp = Response::from_string("{\"error\":\"Invalid route start payload\"}")
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(resp);
+                    }
+                }
+
+                (&Method::Post, "/api/route/pause") => {
+                    route_runner.pause();
+                    let resp = Response::from_string("{\"status\":\"paused\"}")
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/route/resume") => {
+                    route_runner.resume();
+                    let resp = Response::from_string("{\"status\":\"resumed\"}")
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/route/stop") => {
+                    route_runner.stop();
+                    let resp = Response::from_string("{\"status\":\"stopped\"}")
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
+                (&Method::Post, "/api/route/gpx") => {
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+
+                    // Accept either raw XML string or JSON { "xml": "..." }
+                    let xml_str = if content.trim_start().starts_with('{') {
+                        #[derive(Deserialize)]
+                        struct GpxJson { xml: String }
+                        serde_json::from_str::<GpxJson>(&content)
+                            .map(|j| j.xml)
+                            .unwrap_or(content)
+                    } else {
+                        content
+                    };
+
+                    match crate::gpx::parse_gpx(&xml_str) {
+                        Ok(track) => {
+                            let body = serde_json::to_string(&track).unwrap_or_default();
+                            let resp = Response::from_string(body)
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                            let _ = request.respond(resp);
+                        }
+                        Err(e) => {
+                            let resp = Response::from_string(format!("{{\"error\":\"{}\"}}", e))
+                                .with_status_code(StatusCode(400))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                            let _ = request.respond(resp);
+                        }
+                    }
+                }
+
+                (&Method::Post, "/api/route/osrm") => {
+                    #[derive(Deserialize)]
+                    struct OsrmRequest {
+                        coordinates: Vec<[f64; 2]>, // [lat, lon] pairs
+                        #[serde(default = "default_osrm_prof")]
+                        profile: String,
+                    }
+                    fn default_osrm_prof() -> String { "driving".to_string() }
+
+                    let mut content = String::new();
+                    let _ = request.as_reader().read_to_string(&mut content);
+
+                    if let Ok(osrm_req) = serde_json::from_str::<OsrmRequest>(&content) {
+                        if osrm_req.coordinates.len() < 2 {
+                            let resp = Response::from_string("{\"error\":\"Need at least 2 points for OSRM\"}")
+                                .with_status_code(StatusCode(400))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                            let _ = request.respond(resp);
+                            continue;
+                        }
+
+                        // OSRM expects coordinates as lon,lat;lon,lat
+                        let coord_str = osrm_req.coordinates.iter()
+                            .map(|c| format!("{:.6},{:.6}", c[1], c[0]))
+                            .collect::<Vec<_>>()
+                            .join(";");
+
+                        let prof = match osrm_req.profile.as_str() {
+                            "walking" => "foot",
+                            "cycling" => "bike",
+                            _ => "driving",
+                        };
+
+                        let osrm_url = format!(
+                            "https://router.project-osrm.org/route/v1/{}/{}?overview=full&geometries=geojson",
+                            prof, coord_str
+                        );
+
+                        match ureq::get(&osrm_url)
+                            .timeout(std::time::Duration::from_secs(10))
+                            .call()
+                        {
+                            Ok(res) => {
+                                let body = res.into_string().unwrap_or_else(|_| "{}".to_string());
+                                let resp = Response::from_string(body)
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                            }
+                            Err(e) => {
+                                let resp = Response::from_string(format!("{{\"error\":\"OSRM routing failed: {}\"}}", e))
+                                    .with_status_code(StatusCode(502))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                            }
+                        }
+                    } else {
+                        let resp = Response::from_string("{\"error\":\"Invalid OSRM payload\"}")
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                        let _ = request.respond(resp);
+                    }
                 }
 
                 _ => {

@@ -41,6 +41,9 @@ pub enum Commands {
 
     /// Launch the interactive GUI Web Control Dashboard (alias for gui)
     Web(GuiArgs),
+
+    /// Play, plan, or manage dynamic route simulations headlessly
+    Route(RouteArgs),
 }
 
 #[derive(Args, Debug)]
@@ -114,3 +117,37 @@ pub struct SimpleArgs {
     #[arg(short, long)]
     pub lon: f64,
 }
+
+#[derive(Args, Debug)]
+pub struct RouteArgs {
+    #[command(subcommand)]
+    pub action: RouteAction,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum RouteAction {
+    /// Play a GPX track file headlessly with simulated kinematics
+    Play(RoutePlayArgs),
+
+    /// Query live coordinates, heading, and speed of active route
+    Status,
+
+    /// Stop any ongoing route simulation
+    Stop,
+}
+
+#[derive(Args, Debug)]
+pub struct RoutePlayArgs {
+    /// Path to .gpx track file
+    #[arg(short, long)]
+    pub file: String,
+
+    /// Speed in km/h (default: 40.0)
+    #[arg(short, long, default_value_t = 40.0)]
+    pub speed: f64,
+
+    /// Loop simulation when reaching the end of the route
+    #[arg(short, long)]
+    pub loop_route: bool,
+}
+

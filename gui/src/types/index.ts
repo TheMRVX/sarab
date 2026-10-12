@@ -68,3 +68,31 @@ export interface PresetLocation {
   alt: number;
   acc: number;
 }
+
+export interface RouteStatus {
+  is_running: boolean;
+  is_paused: boolean;
+  current_index: number;
+  total_waypoints: number;
+  progress_percent: number;
+  current_lat: number;
+  current_lon: number;
+  current_alt: number;
+  current_heading: number;
+  current_speed_kmh: number;
+  elapsed_seconds: number;
+  is_looping: boolean;
+  profile: 'driving' | 'cycling' | 'walking';
+}
+
+export interface GpxTrack {
+  name?: string;
+  waypoints: Array<{
+    lat: number;
+    lon: number;
+    alt?: number;
+    time?: string;
+  }>;
+  total_distance_meters: number;
+}
+
