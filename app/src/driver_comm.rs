@@ -229,3 +229,63 @@ pub fn set_driver_enabled(enabled: bool) -> Result<()> {
 pub fn get_driver_parameters() -> Result<SpoofConfig> {
     Ok(crate::config::load_local_config())
 }
+
+#[cfg(windows)]
+pub fn set_kinematics_parameters(lat: f64, lon: f64, alt: f64, heading: f64, speed_mps: f64) -> Result<()> {
+    use windows::core::HSTRING;
+    use windows::Win32::System::Registry::{
+        RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE,
+        REG_OPTION_NON_VOLATILE, REG_SZ, RegCloseKey,
+    };
+
+    let subkey = HSTRING::from(DRIVER_REG_PATH);
+    let mut hkey: HKEY = Default::default();
+
+    unsafe {
+        let status = RegCreateKeyExW(
+            HKEY_LOCAL_MACHINE,
+            &subkey,
+            0,
+            None,
+            REG_OPTION_NON_VOLATILE,
+            KEY_SET_VALUE,
+            None,
+            &mut hkey,
+            None,
+        );
+        if status.is_err() {
+            return Err(anyhow::anyhow!("Failed to open driver registry key: {:?}", status));
+        }
+
+        let write_string_val = |hkey: HKEY, name: &str, val: &str| -> Result<()> {
+            let h_name = HSTRING::from(name);
+            let wide_val: Vec<u16> = val.encode_utf16().chain(std::iter::once(0)).collect();
+            let slice = std::slice::from_raw_parts(wide_val.as_ptr() as *const u8, wide_val.len() * 2);
+            let res = RegSetValueExW(hkey, &h_name, 0, REG_SZ, Some(slice));
+            if res.0 != 0 {
+                return Err(anyhow::anyhow!("Failed to set registry value '{}': error code {}", name, res.0));
+            }
+            Ok(())
+        };
+
+        write_string_val(hkey, "Latitude", &format!("{:.7}", lat))?;
+        write_string_val(hkey, "Longitude", &format!("{:.7}", lon))?;
+        write_string_val(hkey, "Altitude", &format!("{:.2}", alt))?;
+        write_string_val(hkey, "Heading", &format!("{:.1}", heading))?;
+        write_string_val(hkey, "Speed", &format!("{:.2}", speed_mps))?;
+
+        let _ = RegCloseKey(hkey);
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn set_kinematics_parameters(lat: f64, lon: f64, alt: f64, _heading: f64, _speed_mps: f64) -> Result<()> {
+    let mut config = crate::config::load_local_config();
+    config.lat = lat;
+    config.lon = lon;
+    config.alt = alt;
+    crate::config::save_local_config(&config)?;
+    Ok(())
+}
+

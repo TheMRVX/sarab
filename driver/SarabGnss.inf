@@ -73,6 +73,8 @@ HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Accuracy",0x0000000
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Enabled",0x00010001,1
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"DriftEnabled",0x00010001,1
 HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"DriftRadius",0x00000000,"1.2"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Heading",0x00000000,"0.0"
+HKLM,System\CurrentControlSet\Services\SarabGnss\Parameters,"Speed",0x00000000,"0.0"
 
 ; ================= Strings =====================
 

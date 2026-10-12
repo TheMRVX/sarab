@@ -138,6 +138,8 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Enabled = TRUE;
     config->DriftEnabled = TRUE;
     config->DriftRadiusMeters = 1.2;
+    config->Heading = 0.0;
+    config->Speed = 0.0;
 
     HKEY hKey = NULL;
     LONG status = RegOpenKeyExW(HKEY_LOCAL_MACHINE, SARAB_REG_PARAMS_PATH, 0, KEY_READ, &hKey);
@@ -155,12 +157,18 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Longitude         = ReadRegistryDouble(hKey, L"Longitude", config->Longitude);
     config->Altitude          = ReadRegistryDouble(hKey, L"Altitude", config->Altitude);
     config->Accuracy          = ReadRegistryUlong(hKey, L"Accuracy", config->Accuracy);
+    config->Heading           = ReadRegistryDouble(hKey, L"Heading", config->Heading);
+    config->Speed             = ReadRegistryDouble(hKey, L"Speed", config->Speed);
+
+    if (config->Heading < 0.0) config->Heading = 0.0;
+    while (config->Heading >= 360.0) config->Heading -= 360.0;
+    if (config->Speed < 0.0) config->Speed = 0.0;
 
     RegCloseKey(hKey);
 
-    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%u, Enabled=%d, Drift=%d(%.1fm)",
+    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%u, Enabled=%d, Drift=%d(%.1fm), Heading=%.1f, Speed=%.1fm/s",
         config->Latitude, config->Longitude, config->Altitude, config->Accuracy, config->Enabled,
-        config->DriftEnabled, config->DriftRadiusMeters);
+        config->DriftEnabled, config->DriftRadiusMeters, config->Heading, config->Speed);
 }
 
 NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config)
@@ -240,16 +248,20 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     pFixData->BasicData.Latitude = finalLat;
     pFixData->BasicData.Longitude = finalLon;
     pFixData->BasicData.Altitude = finalAlt;
-    pFixData->BasicData.Speed = 0.0;
-    pFixData->BasicData.Heading = 0.0;
+    pFixData->BasicData.Speed = config->Speed;
+    pFixData->BasicData.Heading = config->Heading;
 
     // Accuracy data
     pFixData->AccuracyData.Size = sizeof(GNSS_FIXDATA_ACCURACY);
     pFixData->AccuracyData.Version = GNSS_DRIVER_VERSION_1;
     pFixData->AccuracyData.HorizontalAccuracy = config->Accuracy;
     pFixData->AccuracyData.AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
+    pFixData->AccuracyData.HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
+    pFixData->AccuracyData.SpeedAccuracy = 1;
     pFixData->AccuracyData.HorizontalConfidence = 95;
     pFixData->AccuracyData.AltitudeConfidence = 95;
+    pFixData->AccuracyData.HeadingConfidence = 95;
+    pFixData->AccuracyData.SpeedConfidence = 95;
     pFixData->AccuracyData.PositionDilutionOfPrecision = (float)sqrt(hdop * hdop + vdop * vdop);
     pFixData->AccuracyData.HorizontalDilutionOfPrecision = hdop;
     pFixData->AccuracyData.VerticalDilutionOfPrecision = vdop;

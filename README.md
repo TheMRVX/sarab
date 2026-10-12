@@ -160,9 +160,10 @@ sarab.exe gui
 *(or `sarab.exe web --port 8090`)*
 
 Features:
-- **Interactive Map:** Click anywhere or drag the target pin on high-detail CartoDB Dark Matter maps to spoof coordinates instantly.
+- **Interactive Map:** Click anywhere or drag the target pin on high-contrast OpenStreetMap dark tiles (100% free, zero API key required) to spoof coordinates instantly.
 - **Natural GPS Drift & Jitter:** 1Hz Gauss-Markov Ornstein-Uhlenbeck process mimics physical receiver tracking-loop errors, dynamic HDOP/VDOP jitter, and elevation-dependent SNR variations. Includes live 2D scatter radar in the dashboard.
-- **Dynamic Route Simulator:** Define waypoints, select vehicle profiles (Walking 5 km/h, Cycling 20 km/h, Driving 60 km/h), and simulate realistic continuous motion with 1Hz live telemetry interpolation.
+- **Smart Road Routing (OSRM) & GPX Engine:** Snap paths to real roads and highways via free Open Source Routing Machine (OSRM) or import recorded GPX track files from Strava, Garmin, and Google Maps.
+- **Headless Server Kinematics:** 1Hz background simulation engine calculating Course Over Ground (heading $0^\circ - 360^\circ$) and velocity with realistic cornering deceleration. Survives browser tab closure.
 - **GNSS Constellation Telemetry:** Real-time satellite monitor with anti-spoofing stealth safeguards (elevation-dependent SNR spread between 28–44 dB-Hz avoiding intrusion detection).
 - **Location Presets & Custom Bookmarks:** Instant teleportation to major cities (Tehran, Isfahan, Shiraz, Dubai, Tokyo, London, New York) or custom saved pins in `localStorage`.
 - **System & Fix Verification:** Verify live fixes reported by `Windows.Devices.Geolocation` and audit Test Signing / BitLocker status in real time.
@@ -173,6 +174,9 @@ Features:
 |---|---|
 | `gui` | Launch interactive Material-UI web control suite |
 | `web` | Alias for `gui` (configurable via `-p, --port` and `-H, --host`) |
+| `route play` | Play a `.gpx` route file headlessly with simulated kinematics (`--speed`, `--loop`) |
+| `route status`| Query active route telemetry and progress |
+| `route stop` | Terminate any active route simulation |
 | `set` | Set spoof coordinates via CLI |
 | `enable` | Start providing the spoofed fix |
 | `disable` | Stop providing fixes |

@@ -10,6 +10,8 @@ struct SpoofConfig {
     BOOL   Enabled;
     BOOL   DriftEnabled;
     double DriftRadiusMeters;
+    double Heading;
+    double Speed;
 };
 
 // Reads the current configuration from registry parameters
