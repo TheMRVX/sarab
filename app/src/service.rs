@@ -98,8 +98,6 @@ pub mod win {
 
     pub fn install_service(port: u16) -> Result<()> {
         let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
-        let exe_path = current_exe.to_string_lossy();
-        let binary_path = format!("\"{}\" service run --port {}", exe_path, port);
 
         let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CREATE_SERVICE)
             .context("Failed to connect to Service Control Manager (administrator privileges required)")?;
@@ -110,8 +108,13 @@ pub mod win {
             service_type: ServiceType::OWN_PROCESS,
             start_type: ServiceStartType::AutoStart,
             error_control: ServiceErrorControl::Normal,
-            executable_path: std::path::PathBuf::from(&binary_path),
-            launch_arguments: vec![],
+            executable_path: current_exe.clone(),
+            launch_arguments: vec![
+                OsString::from("service"),
+                OsString::from("run"),
+                OsString::from("--port"),
+                OsString::from(port.to_string()),
+            ],
             dependencies: vec![],
             account_name: None,
             account_password: None,
@@ -125,7 +128,7 @@ pub mod win {
         println!("    Service Name:  {}", SERVICE_NAME);
         println!("    Display Name:  {}", SERVICE_DISPLAY_NAME);
         println!("    Startup Type:  Automatic (AutoStart)");
-        println!("    Binary Path:   {}", binary_path);
+        println!("    Executable:    {:?}", current_exe);
         println!("    HTTP API:      http://127.0.0.1:{}", port);
         Ok(())
     }
