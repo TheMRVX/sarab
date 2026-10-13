@@ -3,20 +3,18 @@ name: CI
 on:
   push:
     branches: [ "main" ]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - 'docs/**'
+    paths:
+      - 'app/**'
+      - 'driver/**'
+      - 'gui/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [ "main" ]
-    paths-ignore:
-      - '**.md'
-      - 'LICENSE'
-      - 'NOTICE'
-      - '.gitignore'
-      - 'docs/**'
+    paths:
+      - 'app/**'
+      - 'driver/**'
+      - 'gui/**'
+      - '.github/workflows/ci.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
