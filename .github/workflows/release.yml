@@ -1,29 +1,26 @@
-name: Build and Package Sarab
+name: Release
 
 on:
   push:
-    branches: [ "main" ]
     tags: [ "v*" ]
-  pull_request:
-    branches: [ "main" ]
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Release tag to build and publish (e.g. v0.1.1-alpha)'
+        description: 'Release tag to build and publish (e.g. v1.0.1)'
         required: false
         default: ''
 
-# Least privilege by default; only the release job is granted write access.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions:
-  contents: read
+  contents: write
 
 jobs:
-  build:
-    name: Build Driver and CLI (x64)
+  build-and-release:
+    name: Build, Package & Publish Release (x64)
     runs-on: windows-latest
-    outputs:
-      tag: ${{ steps.package.outputs.tag }}
-      should_release: ${{ steps.package.outputs.should_release }}
 
     steps:
       - name: Checkout repository
@@ -145,7 +142,7 @@ jobs:
           cd app
           cargo build --release --locked
 
-      - name: Package Release Bundle
+      - name: Package Release Bundle & Compile Installer
         id: package
         shell: pwsh
         env:
@@ -181,15 +178,12 @@ jobs:
           pause
           "@ | Out-File -FilePath "$packageDir\uninstall.bat" -Encoding ascii
 
-          # Determine version tag and whether this run should publish a release
+          # Determine version tag
           $tag = "v1.0.0"
-          $shouldRelease = "false"
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
               $tag = $env:GITHUB_REF_NAME
-              $shouldRelease = "true"
           } elseif ($env:INPUT_RELEASE_TAG) {
               $tag = $env:INPUT_RELEASE_TAG
-              $shouldRelease = "true"
           }
 
           # Validate tag format (SemVer with leading 'v') before using it anywhere
@@ -229,35 +223,12 @@ jobs:
           Copy-Item "$packageDir\SarabGnss.cer" -Destination "release_assets\SarabGnss.cer"
 
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          "should_release=$shouldRelease" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: sarab-${{ steps.package.outputs.tag }}-x64
-          path: release_assets/*
-          retention-days: 14
-
-  release:
-    name: Publish GitHub Release
-    needs: build
-    if: needs.build.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: sarab-${{ needs.build.outputs.tag }}-x64
-          path: release_assets
-
-      - name: Create or update GitHub release
+      - name: Publish GitHub Release
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.build.outputs.tag }}
+          TAG: ${{ steps.package.outputs.tag }}
         run: |
           set -euo pipefail
           prerelease=()
