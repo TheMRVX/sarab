@@ -47,6 +47,7 @@ Source: "..\release_package\SarabGnss.cat"; DestDir: "{app}"; Flags: ignoreversi
 Source: "..\release_package\SarabGnss.cer"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Sarab Virtual GNSS Control Panel"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui --open"; IconFilename: "{app}\{#MyAppExeName}"

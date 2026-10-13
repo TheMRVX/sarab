@@ -4,9 +4,9 @@
 
 **A Windows location provider that feeds custom coordinates into the native Windows Location platform.**
 
-[![CI](https://github.com/TheMRVX/sarab/actions/workflows/build.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/build.yml)
+[![CI](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/themrvx/sarab/badge)](https://www.codefactor.io/repository/github/themrvx/sarab)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D4)
 ![Rust](https://img.shields.io/badge/CLI-Rust-orange)
 ![UI](https://img.shields.io/badge/GUI-Material--UI%20%2B%20React-00e5ff)
@@ -280,4 +280,4 @@ Issues and pull requests are welcome. Before submitting a change, please run `ca
 
 ## License
 
-Released under the [MIT License](LICENSE).
+Released under the [Apache License 2.0](LICENSE).
