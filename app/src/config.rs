@@ -89,6 +89,98 @@ pub fn get_session_token_path() -> PathBuf {
     get_sarab_dir().join(".session_token")
 }
 
+pub fn get_active_port_path() -> PathBuf {
+    get_sarab_dir().join(".port")
+}
+
+pub fn get_active_port() -> u16 {
+    if let Ok(content) = fs::read_to_string(get_active_port_path()) {
+        if let Ok(port) = content.trim().parse::<u16>() {
+            return port;
+        }
+    }
+    8090
+}
+
+pub fn save_active_port(port: u16) -> Result<()> {
+    let dir = get_sarab_dir();
+    if is_reparse_point(&dir) {
+        anyhow::bail!(
+            "Refusing to save port in reparse point / symlink directory: {:?}",
+            dir
+        );
+    }
+    fs::create_dir_all(&dir)?;
+    let path = get_active_port_path();
+    if is_reparse_point(&path) {
+        anyhow::bail!("Refusing to write to reparse point / symlink: {:?}", path);
+    }
+    fs::write(&path, port.to_string())?;
+    Ok(())
+}
+
+#[cfg(windows)]
+fn is_reparse_point(path: &std::path::Path) -> bool {
+    use std::os::windows::fs::MetadataExt;
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        (meta.file_attributes() & 0x400) != 0
+    } else {
+        false
+    }
+}
+
+#[cfg(not(windows))]
+fn is_reparse_point(path: &std::path::Path) -> bool {
+    if let Ok(meta) = std::fs::symlink_metadata(path) {
+        meta.file_type().is_symlink()
+    } else {
+        false
+    }
+}
+
+pub fn save_session_token(token: &str) -> Result<()> {
+    let dir = get_sarab_dir();
+    if is_reparse_point(&dir) {
+        anyhow::bail!(
+            "Refusing to save token in reparse point / symlink directory: {:?}",
+            dir
+        );
+    }
+    fs::create_dir_all(&dir)?;
+    let path = get_session_token_path();
+    if is_reparse_point(&path) {
+        anyhow::bail!("Refusing to write to reparse point / symlink: {:?}", path);
+    }
+    fs::write(&path, token)?;
+
+    #[cfg(windows)]
+    {
+        // Restrict token file ACL:
+        // Disable inheritance, grant Full Control to SYSTEM (S-1-5-18) & Administrators (S-1-5-32-544),
+        // and grant Read access to Authenticated Users (S-1-5-11) so CLI commands can authenticate.
+        let _ = std::process::Command::new("icacls")
+            .args([
+                path.to_str().unwrap_or_default(),
+                "/inheritance:r",
+                "/grant:r",
+                "*S-1-5-18:F",
+                "/grant:r",
+                "*S-1-5-32-544:F",
+                "/grant:r",
+                "*S-1-5-11:R",
+            ])
+            .output();
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(())
+}
+
 pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
     let path = get_config_path();
     if let Some(parent) = path.parent() {

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 TheMRVX. Licensed under MIT OR Apache-2.0.
+
 #include "GnssLogic.h"
 #include "Trace.h"
 #include <stdlib.h>
@@ -251,7 +254,7 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->VerticalDilutionOfPrecision = (vdop < 3.2f) ? 3.2f : vdop;
     } else if (config->RtkShieldEnabled) {
         // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
-        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy < 1.0) ? config->Accuracy : 1.0);
+        pAccData->HorizontalAccuracy = 1;
         pAccData->AltitudeAccuracy = 1;
         pAccData->HeadingAccuracy = 2;
         pAccData->SpeedAccuracy = 1;
@@ -262,8 +265,8 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->HorizontalDilutionOfPrecision = (hdop < 0.6f) ? hdop : 0.6f;
         pAccData->VerticalDilutionOfPrecision = (vdop < 0.8f) ? vdop : 0.8f;
     } else {
-        pAccData->HorizontalAccuracy = (ULONG)config->Accuracy;
-        pAccData->AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
+        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy < 1.0) ? 1.0 : config->Accuracy);
+        pAccData->AltitudeAccuracy = (ULONG)((config->Accuracy * 1.5f < 1.0f) ? 1.0f : (config->Accuracy * 1.5f));
         pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
         pAccData->SpeedAccuracy = 1;
         pAccData->HorizontalConfidence = 95;

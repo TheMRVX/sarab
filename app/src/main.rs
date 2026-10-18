@@ -66,11 +66,54 @@ fn main() -> Result<()> {
             println!("[-] Spoofing DISABLED. The virtual GNSS driver will not provide fixes until re-enabled.");
         }
 
-        Commands::Status => {
+        Commands::Status(args) => {
             let (test_signing, boot_opts) = installer::check_test_signing_mode();
             let (privacy_ok, privacy_desc) = reader::check_location_privacy_consent();
             let bitlocker_status = installer::check_bitlocker_status();
+            let (driver_installed, driver_running) = installer::get_driver_state();
             let current_config = driver_comm::get_driver_parameters().unwrap_or_default();
+
+            if args.json {
+                #[derive(serde::Serialize)]
+                struct StatusJson {
+                    test_signing: bool,
+                    boot_options: String,
+                    location_privacy: bool,
+                    location_privacy_details: String,
+                    bitlocker: String,
+                    driver_installed: bool,
+                    driver_running: bool,
+                    spoof_enabled: bool,
+                    latitude: f64,
+                    longitude: f64,
+                    altitude: f64,
+                    accuracy: f64,
+                    drift_enabled: bool,
+                    drift_radius: f64,
+                    version: &'static str,
+                }
+
+                let status_obj = StatusJson {
+                    test_signing,
+                    boot_options: boot_opts,
+                    location_privacy: privacy_ok,
+                    location_privacy_details: privacy_desc,
+                    bitlocker: bitlocker_status,
+                    driver_installed,
+                    driver_running,
+                    spoof_enabled: current_config.enabled,
+                    latitude: current_config.lat,
+                    longitude: current_config.lon,
+                    altitude: current_config.alt,
+                    accuracy: current_config.acc,
+                    drift_enabled: current_config.drift_enabled,
+                    drift_radius: current_config.drift_radius,
+                    version: "1.0.2",
+                };
+
+                println!("{}", serde_json::to_string_pretty(&status_obj)?);
+                return Ok(());
+            }
 
             println!("\n================ Sarab System Status ================");
             println!(
@@ -91,6 +134,18 @@ fn main() -> Result<()> {
             );
             println!("BitLocker Status:  {}", bitlocker_status);
             println!("Boot Options:      {}", boot_opts);
+            println!(
+                "Driver Installed:  {}",
+                if driver_installed { "YES" } else { "NO" }
+            );
+            println!(
+                "Driver Running:    {}",
+                if driver_running {
+                    "YES (Healthy - ProblemCode: 0)"
+                } else {
+                    "NO / ERROR (Check Device Manager)"
+                }
+            );
             println!(
                 "Spoof Active:      {}",
                 if current_config.enabled { "YES" } else { "NO" }
@@ -159,8 +214,8 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Read => {
-            reader::read_windows_location()?;
+        Commands::Read(args) => {
+            reader::read_windows_location(args.json)?;
         }
 
         Commands::Simple(args) => {
@@ -220,8 +275,9 @@ fn main() -> Result<()> {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
+                let port = config::get_active_port();
 
-                let client_res = ureq::get("http://127.0.0.1:8090/api/route/status")
+                let client_res = ureq::get(&format!("http://127.0.0.1:{}/api/route/status", port))
                     .set("X-Sarab-Token", &token_str)
                     .timeout(std::time::Duration::from_secs(2))
                     .call();
@@ -256,7 +312,10 @@ fn main() -> Result<()> {
                         }
                     }
                     Err(_) => {
-                        println!("[-] Sarab service/daemon is not reachable on port 8090.");
+                        println!(
+                            "[-] Sarab service/daemon is not reachable on port {}.",
+                            port
+                        );
                         let cfg = driver_comm::get_driver_parameters().unwrap_or_default();
                         println!("=== Current Driver Static Coordinates ===");
                         println!("Latitude:  {:.7}°", cfg.lat);
@@ -272,8 +331,9 @@ fn main() -> Result<()> {
                     .unwrap_or_default()
                     .trim()
                     .to_string();
+                let port = config::get_active_port();
 
-                let client_res = ureq::post("http://127.0.0.1:8090/api/route/stop")
+                let client_res = ureq::post(&format!("http://127.0.0.1:{}/api/route/stop", port))
                     .set("X-Sarab-Token", &token_str)
                     .timeout(std::time::Duration::from_secs(2))
                     .call();
@@ -285,7 +345,7 @@ fn main() -> Result<()> {
                         );
                     }
                     Err(e) => {
-                        println!("[-] Failed to stop route in daemon (Is Sarab service running on port 8090?): {}", e);
+                        println!("[-] Failed to stop route in daemon (Is Sarab service running on port {}?): {}", port, e);
                     }
                 }
             }

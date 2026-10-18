@@ -157,8 +157,11 @@ jobs:
           Copy-Item "driver\x64\Release\*.cat" -Destination "$packageDir\SarabGnss.cat"
           Copy-Item "driver\x64\Release\SarabGnss.cer" -Destination "$packageDir\SarabGnss.cer"
           Copy-Item "README.md" -Destination "$packageDir\README.md"
-          Copy-Item "LICENSE" -Destination "$packageDir\LICENSE"
+          Copy-Item "LICENSE-APACHE" -Destination "$packageDir\LICENSE-APACHE"
+          Copy-Item "LICENSE-MIT" -Destination "$packageDir\LICENSE-MIT"
           Copy-Item "NOTICE" -Destination "$packageDir\NOTICE"
+          Copy-Item "THIRD-PARTY-NOTICES.md" -Destination "$packageDir\THIRD-PARTY-NOTICES.md"
+          Get-Content "LICENSE-MIT", "LICENSE-APACHE" | Set-Content "$packageDir\LICENSE"
 
           # Create helper install & uninstall batch scripts for convenience
           @"

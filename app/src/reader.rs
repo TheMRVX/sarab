@@ -85,6 +85,17 @@ pub fn check_location_privacy_consent() -> (bool, String) {
     (true, "Allowed (Simulated)".to_string())
 }
 
+#[allow(dead_code)]
+pub fn haversine_distance_meters(lat1: f64, lon1: f64, lat2: f64, lon2: f64) -> f64 {
+    const R: f64 = 6_371_000.0;
+    let d_lat = (lat2 - lat1).to_radians();
+    let d_lon = (lon2 - lon1).to_radians();
+    let a = (d_lat / 2.0).sin().powi(2)
+        + lat1.to_radians().cos() * lat2.to_radians().cos() * (d_lon / 2.0).sin().powi(2);
+    let c = 2.0 * a.sqrt().atan2((1.0 - a).sqrt());
+    R * c
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct LiveLocationReport {
     pub latitude: f64,
@@ -93,6 +104,8 @@ pub struct LiveLocationReport {
     pub accuracy: f64,
     pub source: String,
     pub timestamp: String,
+    pub verified: bool,
+    pub distance_error_meters: f64,
 }
 
 #[cfg(windows)]
@@ -186,6 +199,16 @@ pub fn query_live_location() -> Result<LiveLocationReport> {
         _ => "Unspecified",
     };
 
+    let cfg = crate::driver_comm::get_driver_parameters().unwrap_or_default();
+    let distance_error = if cfg.enabled {
+        haversine_distance_meters(pos.Latitude, pos.Longitude, cfg.lat, cfg.lon)
+    } else {
+        0.0
+    };
+    let tolerance = (25.0f64).max(cfg.drift_radius * 3.0 + accuracy);
+    let verified =
+        cfg.enabled && source_str == "Satellite (GNSS / GPS)" && distance_error <= tolerance;
+
     Ok(LiveLocationReport {
         latitude: pos.Latitude,
         longitude: pos.Longitude,
@@ -193,6 +216,8 @@ pub fn query_live_location() -> Result<LiveLocationReport> {
         accuracy,
         source: source_str.to_string(),
         timestamp: "Active".to_string(),
+        verified,
+        distance_error_meters: (distance_error * 10.0).round() / 10.0,
     })
 }
 
@@ -214,9 +239,16 @@ impl std::fmt::Display for FixSummary {
 }
 
 #[cfg(windows)]
-pub fn read_windows_location() -> Result<()> {
-    println!("[*] Querying Windows Location Service (Windows.Devices.Geolocation)...");
+pub fn read_windows_location(json: bool) -> Result<()> {
+    if !json {
+        println!("[*] Querying Windows Location Service (Windows.Devices.Geolocation)...");
+    }
     let report = query_live_location()?;
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
 
     let summary = FixSummary {
         lat: report.latitude,
@@ -228,6 +260,15 @@ pub fn read_windows_location() -> Result<()> {
     println!("\n=== Windows Live Location Report ===");
     println!("{}", summary);
     println!("Source:     {}", report.source);
+    println!(
+        "Verified:   {} (offset: {:.1} m)",
+        if report.verified {
+            "YES (Spoofed GNSS Fix Confirmed)"
+        } else {
+            "NO (Not within spoof tolerance)"
+        },
+        report.distance_error_meters
+    );
     println!("====================================\n");
 
     Ok(())
@@ -243,12 +284,19 @@ pub fn query_live_location() -> Result<LiveLocationReport> {
         accuracy: cfg.acc,
         source: "Satellite (GNSS / GPS)".to_string(),
         timestamp: "Simulated Fix".to_string(),
+        verified: cfg.enabled,
+        distance_error_meters: 0.0,
     })
 }
 
 #[cfg(not(windows))]
-pub fn read_windows_location() -> Result<()> {
+pub fn read_windows_location(json: bool) -> Result<()> {
     let report = query_live_location()?;
+    if json {
+        println!("{}", serde_json::to_string_pretty(&report)?);
+        return Ok(());
+    }
+
     let summary = FixSummary {
         lat: report.latitude,
         lon: report.longitude,
@@ -256,8 +304,24 @@ pub fn read_windows_location() -> Result<()> {
         acc: report.accuracy,
     };
     println!(
-        "[*] Simulated Location:\n{} (Source: {})",
-        summary, report.source
+        "[*] Simulated Location:\n{} (Source: {}, Verified: {})",
+        summary, report.source, report.verified
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_haversine_distance() {
+        // Tehran to Isfahan (~340 km)
+        let dist = haversine_distance_meters(35.6892, 51.3890, 32.6546, 51.6680);
+        assert!((dist - 338_000.0).abs() < 10_000.0);
+
+        // Identical points should have 0 distance
+        let dist_zero = haversine_distance_meters(35.0, 50.0, 35.0, 50.0);
+        assert_eq!(dist_zero, 0.0);
+    }
 }

@@ -31,7 +31,6 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
   const [alt, setAlt] = useState<string>(config.altitude.toString());
   const [acc, setAcc] = useState<number>(config.accuracy);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<boolean>(false);
 
   // Sync internal state when config changes from map click or preset
   useEffect(() => {
@@ -44,7 +43,6 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setSuccess(false);
 
     const parsedLat = parseFloat(lat);
     const parsedLon = parseFloat(lon);
@@ -74,9 +72,6 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
       driftEnabled: config.driftEnabled,
       driftRadius: config.driftRadius,
     });
-
-    setSuccess(true);
-    setTimeout(() => setSuccess(false), 3000);
   };
 
   return (
@@ -86,7 +81,6 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
       </Typography>
 
       {error && <Alert severity="error" onClose={() => setError(null)}>{error}</Alert>}
-      {success && <Alert severity="success">Coordinates successfully applied to Windows Location!</Alert>}
 
       <Grid container spacing={2}>
         {/* Latitude */}

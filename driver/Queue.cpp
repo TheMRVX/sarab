@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 TheMRVX. Licensed under MIT OR Apache-2.0.
+
 #include "Queue.h"
 #include "Trace.h"
 
@@ -128,9 +131,13 @@ VOID SarabEvtIoDeviceControl(
         status = WdfRequestRetrieveInputBuffer(Request, sizeof(GNSS_FIXSESSION_PARAM), (PVOID*)&pParam, &bufferSize);
         if (NT_SUCCESS(status) && pParam != NULL) {
             WdfWaitLockAcquire(deviceContext->Lock, NULL);
+            deviceContext->SessionType = pParam->SessionType;
             if (pParam->SessionType == GNSS_FixSession_ContinuousTracking && pParam->ContinuousParam.PreferredInterval > 0) {
                 deviceContext->TimeBetweenFixes = pParam->ContinuousParam.PreferredInterval;
             }
+            deviceContext->SessionActive = TRUE;
+            deviceContext->FixSequenceNumber = 0;
+            WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(5));
             WdfWaitLockRelease(deviceContext->Lock);
             status = STATUS_SUCCESS;
         }
@@ -163,6 +170,13 @@ VOID SarabEvtIoDeviceControl(
         if (!NT_SUCCESS(status)) {
             TraceEvents(0, 0, "Forward to FixDataQueue failed: 0x%08X", status);
             WdfRequestComplete(Request, status);
+        } else {
+            // Accelerate the initial fix to 5ms so the OS does not experience a 1-second delay
+            WdfWaitLockAcquire(deviceContext->Lock, NULL);
+            if (deviceContext->SessionActive && deviceContext->FixSequenceNumber == 0) {
+                WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(5));
+            }
+            WdfWaitLockRelease(deviceContext->Lock);
         }
         break;
     }
