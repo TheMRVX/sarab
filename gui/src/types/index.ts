@@ -38,6 +38,7 @@ export interface Waypoint {
   id: string;
   lat: number;
   lon: number;
+  alt?: number;
   name?: string;
 }
 

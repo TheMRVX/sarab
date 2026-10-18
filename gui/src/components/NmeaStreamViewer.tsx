@@ -3,6 +3,7 @@ import { Box, Typography, Paper, Chip, IconButton, Tooltip } from '@mui/material
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckIcon from '@mui/icons-material/Check';
 import WifiTetheringIcon from '@mui/icons-material/WifiTethering';
+import { apiFetch } from '../api/client';
 
 export const NmeaStreamViewer: React.FC = () => {
   const [sentences, setSentences] = useState<string[]>([]);
@@ -11,7 +12,7 @@ export const NmeaStreamViewer: React.FC = () => {
   useEffect(() => {
     const fetchNmea = async () => {
       try {
-        const res = await fetch('http://localhost:8090/api/nmea/latest');
+        const res = await apiFetch('/api/nmea/latest');
         if (res.ok) {
           const data = await res.json();
           if (data.sentences) {

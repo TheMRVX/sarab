@@ -199,7 +199,7 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
                 2. Test Live Location Fix via CLI:
               </Typography>
               <Paper
-                onClick={() => handleCopyCode('sarab.exe read --live')}
+                onClick={() => handleCopyCode('sarab.exe read')}
                 sx={{
                   p: 1,
                   mt: 0.5,
@@ -214,9 +214,9 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
                   alignItems: 'center',
                 }}
               >
-                <code>sarab.exe read --live</code>
+                <code>sarab.exe read</code>
                 <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
-                  {copyCodeSuccess === 'sarab.exe read --live' ? 'Copied!' : 'Click to copy'}
+                  {copyCodeSuccess === 'sarab.exe read' ? 'Copied!' : 'Click to copy'}
                 </Typography>
               </Paper>
             </Box>

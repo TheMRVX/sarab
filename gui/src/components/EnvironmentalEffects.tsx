@@ -13,6 +13,7 @@ import LocationCityIcon from '@mui/icons-material/LocationCity';
 import DirectionsSubwayIcon from '@mui/icons-material/DirectionsSubway';
 import LocalParkingIcon from '@mui/icons-material/LocalParking';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
+import { apiFetch } from '../api/client';
 
 export type EnvironmentMode = 'open_sky' | 'urban_canyon' | 'tunnel' | 'underground';
 
@@ -42,7 +43,7 @@ export const EnvironmentalEffects: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/environment/status');
+      const res = await apiFetch('/api/environment/status');
       if (res.ok) {
         const data = await res.json();
         setStatus(data);
@@ -65,7 +66,7 @@ export const EnvironmentalEffects: React.FC = () => {
     if (!newMode || newMode === status.mode) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/environment/set', {
+      const res = await apiFetch('/api/environment/set', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ mode: newMode }),

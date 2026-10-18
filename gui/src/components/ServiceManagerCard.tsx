@@ -13,6 +13,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow';
 import StopIcon from '@mui/icons-material/Stop';
 import DeleteForeverIcon from '@mui/icons-material/DeleteForever';
 import AddTaskIcon from '@mui/icons-material/AddTask';
+import { apiFetch } from '../api/client';
 
 interface ServiceStatus {
   supported: boolean;
@@ -37,7 +38,7 @@ export const ServiceManagerCard: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('/api/service/status');
+      const res = await apiFetch('/api/service/status');
       if (res.ok) {
         const data = await res.json();
         setService(data);
@@ -57,7 +58,7 @@ export const ServiceManagerCard: React.FC = () => {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await fetch('/api/service/action', {
+      const res = await apiFetch('/api/service/action', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action, port: 8090 }),
