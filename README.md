@@ -241,7 +241,7 @@ cargo test
 
 Open `driver/SarabGnss.vcxproj` in Visual Studio (Release, x64) and build. The resulting package must be signed; for local use, a self-signed test certificate works with Test Signing enabled.
 
-The [CI workflow](.github/workflows/build.yml) builds both components, generates a test certificate, signs the driver package and publishes the release archive.
+The [CI workflow](.github/workflows/ci.yml) builds both components, generates a test certificate, signs the driver package and publishes the release archive.
 
 ## Uninstallation
 

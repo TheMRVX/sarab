@@ -2,14 +2,14 @@
 ; Inno Setup 6.x Script
 #define MyAppName "Sarab Virtual GNSS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.0"
+  #define MyAppVersion "1.0.1"
 #endif
 #define MyAppPublisher "TheMRVX"
 #define MyAppURL "https://github.com/TheMRVX/sarab"
 #define MyAppExeName "sarab.exe"
 
 [Setup]
-AppId={{5175D334-C371-4806-B3BA-71FD53C9258D}
+AppId={{B42E7C69-2DF1-4682-BD0E-91C7AE54E70D}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
