@@ -9,17 +9,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// State for 1Hz Gauss-Markov / Ornstein-Uhlenbeck drift filter
-struct DriftState {
-    double dNorth; // North offset in meters
-    double dEast;  // East offset in meters
-    double dUp;    // Up offset in meters
-    unsigned int seed;
-    BOOL initialized;
-};
-
-static DriftState g_Drift = { 0.0, 0.0, 0.0, 0x1337C0DE, FALSE };
-
 // Uniform random in (0, 1]
 static double UniformRandom(unsigned int* seed)
 {
@@ -40,20 +29,27 @@ static void GenerateNormalPair(unsigned int* seed, double* z0, double* z1)
 }
 
 // 1Hz Gauss-Markov / Ornstein-Uhlenbeck drift step
-static void UpdateDrift(double sigma_h, double* out_dNorth, double* out_dEast, double* out_dUp)
+static void UpdateDrift(DriftState* drift, double sigma_h, double* out_dNorth, double* out_dEast, double* out_dUp)
 {
-    if (!g_Drift.initialized) {
-        g_Drift.seed = (unsigned int)GetTickCount();
-        g_Drift.dNorth = 0.0;
-        g_Drift.dEast = 0.0;
-        g_Drift.dUp = 0.0;
-        g_Drift.initialized = TRUE;
+    if (!drift) {
+        *out_dNorth = 0.0;
+        *out_dEast = 0.0;
+        *out_dUp = 0.0;
+        return;
+    }
+
+    if (!drift->initialized) {
+        drift->seed = 0x1337C0DE ^ (unsigned int)GetTickCount();
+        drift->dNorth = 0.0;
+        drift->dEast = 0.0;
+        drift->dUp = 0.0;
+        drift->initialized = TRUE;
     }
 
     if (sigma_h <= 0.001) {
-        g_Drift.dNorth = 0.0;
-        g_Drift.dEast = 0.0;
-        g_Drift.dUp = 0.0;
+        drift->dNorth = 0.0;
+        drift->dEast = 0.0;
+        drift->dUp = 0.0;
         *out_dNorth = 0.0;
         *out_dEast = 0.0;
         *out_dUp = 0.0;
@@ -65,23 +61,23 @@ static void UpdateDrift(double sigma_h, double* out_dNorth, double* out_dEast, d
     const double beta_h = sigma_h * sqrt(1.0 - alpha * alpha);
 
     double zN = 0.0, zE = 0.0;
-    GenerateNormalPair(&g_Drift.seed, &zN, &zE);
+    GenerateNormalPair(&drift->seed, &zN, &zE);
 
     double zU = 0.0, zDummy = 0.0;
-    GenerateNormalPair(&g_Drift.seed, &zU, &zDummy);
+    GenerateNormalPair(&drift->seed, &zU, &zDummy);
 
     // Vertical sigma is ~1.5x horizontal in real GNSS
     const double sigma_v = 1.5 * sigma_h;
     const double beta_v = sigma_v * sqrt(1.0 - alpha * alpha);
 
     // OU mean-reverting random walk
-    g_Drift.dNorth = alpha * g_Drift.dNorth + beta_h * zN;
-    g_Drift.dEast  = alpha * g_Drift.dEast  + beta_h * zE;
-    g_Drift.dUp    = alpha * g_Drift.dUp    + beta_v * zU;
+    drift->dNorth = alpha * drift->dNorth + beta_h * zN;
+    drift->dEast  = alpha * drift->dEast  + beta_h * zE;
+    drift->dUp    = alpha * drift->dUp    + beta_v * zU;
 
-    *out_dNorth = g_Drift.dNorth;
-    *out_dEast  = g_Drift.dEast;
-    *out_dUp    = g_Drift.dUp;
+    *out_dNorth = drift->dNorth;
+    *out_dEast  = drift->dEast;
+    *out_dUp    = drift->dUp;
 }
 
 static BOOL ReadRegistryBool(HKEY hKey, const wchar_t* name, BOOL defaultValue)
@@ -103,8 +99,9 @@ static double ReadRegistryDouble(HKEY hKey, const wchar_t* name, double defaultV
         return (double)dwValue;
     }
     wchar_t strBuffer[128];
-    dataSize = sizeof(strBuffer);
+    dataSize = sizeof(strBuffer) - sizeof(wchar_t);
     if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
+        strBuffer[127] = L'\0';
         return _wtof(strBuffer);
     }
     return defaultValue;
@@ -119,8 +116,9 @@ static ULONG ReadRegistryUlong(HKEY hKey, const wchar_t* name, ULONG defaultValu
         return (ULONG)dwValue;
     }
     wchar_t strBuffer[128];
-    dataSize = sizeof(strBuffer);
+    dataSize = sizeof(strBuffer) - sizeof(wchar_t);
     if (RegQueryValueExW(hKey, name, NULL, &dwType, (LPBYTE)strBuffer, &dataSize) == ERROR_SUCCESS && dwType == REG_SZ) {
+        strBuffer[127] = L'\0';
         return (ULONG)_wtoi(strBuffer);
     }
     return defaultValue;
@@ -156,7 +154,7 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
     config->Latitude          = ReadRegistryDouble(hKey, L"Latitude", config->Latitude);
     config->Longitude         = ReadRegistryDouble(hKey, L"Longitude", config->Longitude);
     config->Altitude          = ReadRegistryDouble(hKey, L"Altitude", config->Altitude);
-    config->Accuracy          = ReadRegistryUlong(hKey, L"Accuracy", config->Accuracy);
+    config->Accuracy          = ReadRegistryDouble(hKey, L"Accuracy", config->Accuracy);
     config->Heading           = ReadRegistryDouble(hKey, L"Heading", config->Heading);
     config->Speed             = ReadRegistryDouble(hKey, L"Speed", config->Speed);
     config->RtkShieldEnabled  = ReadRegistryBool(hKey, L"RtkShield", TRUE);
@@ -168,12 +166,12 @@ void LoadSpoofConfigFromRegistry(SpoofConfig* config)
 
     RegCloseKey(hKey);
 
-    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%u, Enabled=%d, Drift=%d(%.1fm), Heading=%.1f, Speed=%.1fm/s",
+    TraceEvents(0, 0, "Loaded spoof config: Lat=%.6f, Lon=%.6f, Alt=%.1f, Acc=%.1f, Enabled=%d, Drift=%d(%.1fm), Heading=%.1f, Speed=%.1fm/s",
         config->Latitude, config->Longitude, config->Altitude, config->Accuracy, config->Enabled,
         config->DriftEnabled, config->DriftRadiusMeters, config->Heading, config->Speed);
 }
 
-static void CalculateDriftedPosition(const SpoofConfig* config, double* outLat, double* outLon, double* outAlt, float* outHdop, float* outVdop)
+static void CalculateDriftedPosition(const SpoofConfig* config, DriftState* drift, double* outLat, double* outLon, double* outAlt, float* outHdop, float* outVdop)
 {
     *outLat = config->Latitude;
     *outLon = config->Longitude;
@@ -186,7 +184,7 @@ static void CalculateDriftedPosition(const SpoofConfig* config, double* outLat, 
     }
 
     double dNorth = 0.0, dEast = 0.0, dUp = 0.0;
-    UpdateDrift(config->DriftRadiusMeters, &dNorth, &dEast, &dUp);
+    UpdateDrift(drift, config->DriftRadiusMeters, &dNorth, &dEast, &dUp);
 
     const double metersPerDegreeLat = 111132.95;
     double radLat = config->Latitude * (M_PI / 180.0);
@@ -215,9 +213,21 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
     pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
     pAccData->Version = GNSS_DRIVER_VERSION_1;
 
-    if (config->EnvironmentMode == 2) {
+    if (config->EnvironmentMode == 3) {
+        // Underground parking mode: complete satellite obstruction, zero signal confidence
+        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 50.0) ? config->Accuracy : 50.0);
+        pAccData->AltitudeAccuracy = pAccData->HorizontalAccuracy * 2;
+        pAccData->HeadingAccuracy = 45;
+        pAccData->SpeedAccuracy = 10;
+        pAccData->HorizontalConfidence = 20;
+        pAccData->AltitudeConfidence = 20;
+        pAccData->HeadingConfidence = 20;
+        pAccData->SpeedConfidence = 20;
+        pAccData->HorizontalDilutionOfPrecision = 25.0f;
+        pAccData->VerticalDilutionOfPrecision = 35.0f;
+    } else if (config->EnvironmentMode == 2) {
         // Tunnel / Dead Reckoning mode: complete loss of line-of-sight satellite signals
-        pAccData->HorizontalAccuracy = (config->Accuracy > 20) ? config->Accuracy : 25;
+        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 20.0) ? config->Accuracy : 25.0);
         pAccData->AltitudeAccuracy = pAccData->HorizontalAccuracy * 2;
         pAccData->HeadingAccuracy = 25;
         pAccData->SpeedAccuracy = 5;
@@ -229,7 +239,7 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->VerticalDilutionOfPrecision = 18.0f;
     } else if (config->EnvironmentMode == 1) {
         // Urban Canyon multipath mode: building reflections and higher HDOP
-        pAccData->HorizontalAccuracy = (config->Accuracy > 10) ? config->Accuracy : 12;
+        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 10.0) ? config->Accuracy : 12.0);
         pAccData->AltitudeAccuracy = (ULONG)(pAccData->HorizontalAccuracy * 1.5f);
         pAccData->HeadingAccuracy = 10;
         pAccData->SpeedAccuracy = 2;
@@ -241,7 +251,7 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->VerticalDilutionOfPrecision = (vdop < 3.2f) ? 3.2f : vdop;
     } else if (config->RtkShieldEnabled) {
         // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
-        pAccData->HorizontalAccuracy = 1;
+        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy < 1.0) ? config->Accuracy : 1.0);
         pAccData->AltitudeAccuracy = 1;
         pAccData->HeadingAccuracy = 2;
         pAccData->SpeedAccuracy = 1;
@@ -252,7 +262,7 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->HorizontalDilutionOfPrecision = (hdop < 0.6f) ? hdop : 0.6f;
         pAccData->VerticalDilutionOfPrecision = (vdop < 0.8f) ? vdop : 0.8f;
     } else {
-        pAccData->HorizontalAccuracy = config->Accuracy;
+        pAccData->HorizontalAccuracy = (ULONG)config->Accuracy;
         pAccData->AltitudeAccuracy = (ULONG)(config->Accuracy * 1.5f);
         pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
         pAccData->SpeedAccuracy = 1;
@@ -275,7 +285,7 @@ static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData, ULONG e
     pSatData->Size = sizeof(GNSS_FIXDATA_SATELLITE);
     pSatData->Version = GNSS_DRIVER_VERSION_1;
 
-    if (environmentMode == 2) {
+    if (environmentMode == 2 || environmentMode == 3) {
         // Tunnel / Underground: Zero visible satellites
         pSatData->SatelliteCount = 0;
         return;
@@ -298,7 +308,7 @@ static void PopulateSatelliteTelemetry(PGNSS_FIXDATA_SATELLITE pSatData, ULONG e
     }
 }
 
-NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config)
+NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config, DriftState* drift)
 {
     PGNSS_EVENT pEvent = NULL;
     size_t outBufferSize = 0;
@@ -334,7 +344,7 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
 
     double finalLat = 0.0, finalLon = 0.0, finalAlt = 0.0;
     float hdop = 1.0f, vdop = 1.3f;
-    CalculateDriftedPosition(config, &finalLat, &finalLon, &finalAlt, &hdop, &vdop);
+    CalculateDriftedPosition(config, drift, &finalLat, &finalLon, &finalAlt, &hdop, &vdop);
 
     pFixData->BasicData.Size = sizeof(GNSS_FIXDATA_BASIC);
     pFixData->BasicData.Version = GNSS_DRIVER_VERSION_1;
@@ -348,7 +358,7 @@ NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESS
     PopulateSatelliteTelemetry(&pFixData->SatelliteData, config->EnvironmentMode);
 
     WdfRequestCompleteWithInformation(Request, STATUS_SUCCESS, sizeof(GNSS_EVENT));
-    TraceEvents(0, 0, "Completed GNSS_EVENT Fix for Session %u: Lat=%.7f Lon=%.7f Alt=%.2f Acc=%u HDOP=%.2f",
+    TraceEvents(0, 0, "Completed GNSS_EVENT Fix for Session %u: Lat=%.7f Lon=%.7f Alt=%.2f Acc=%.1f HDOP=%.2f",
         FixSessionID, finalLat, finalLon, finalAlt, config->Accuracy, hdop);
 
     return STATUS_SUCCESS;

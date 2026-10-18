@@ -56,7 +56,7 @@ VOID SarabEvtIoDeviceControl(
             RtlZeroMemory(pCaps, sizeof(GNSS_DEVICE_CAPABILITY));
             pCaps->Size = sizeof(GNSS_DEVICE_CAPABILITY);
             pCaps->Version = GNSS_DRIVER_VERSION_1;
-            pCaps->SupportMultipleFixSessions = TRUE;
+            pCaps->SupportMultipleFixSessions = FALSE;
             pCaps->SupportMultipleAppSessions = TRUE;
             pCaps->RequireAGnssInjection = FALSE;
             pCaps->AgnssFormatSupported = 0;
@@ -157,18 +157,12 @@ VOID SarabEvtIoDeviceControl(
 
     case IOCTL_GNSS_GET_FIXDATA:
     {
-        // Forward the request to the manual pending queue
+        // Forward the request to the manual pending queue.
+        // It will be completed when the periodic FixTimer ticks according to TimeBetweenFixes.
         status = WdfRequestForwardToIoQueue(Request, deviceContext->FixDataQueue);
         if (!NT_SUCCESS(status)) {
             TraceEvents(0, 0, "Forward to FixDataQueue failed: 0x%08X", status);
             WdfRequestComplete(Request, status);
-        } else {
-            // Trigger timer immediately to service the request promptly if session is active
-            WdfWaitLockAcquire(deviceContext->Lock, NULL);
-            if (deviceContext->SessionActive) {
-                WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(5));
-            }
-            WdfWaitLockRelease(deviceContext->Lock);
         }
         break;
     }
