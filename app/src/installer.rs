@@ -437,8 +437,8 @@ pub fn uninstall_driver_device() -> Result<()> {
 pub fn get_driver_state() -> (bool, bool) {
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
         CM_Get_DevNode_Status, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
-        SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, DIGCF_PRESENT, SPDRP_HARDWAREID,
-        SP_DEVINFO_DATA,
+        SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, CM_DEVNODE_STATUS_FLAGS, CM_PROB,
+        CONFIGRET, DIGCF_PRESENT, SPDRP_HARDWAREID, SP_DEVINFO_DATA,
     };
 
     const DN_STARTED: u32 = 0x00000008;
@@ -484,15 +484,15 @@ pub fn get_driver_state() -> (bool, bool) {
                     .contains(&HARDWARE_ID.to_lowercase())
                 {
                     found = true;
-                    let mut status: u32 = 0;
-                    let mut problem: u32 = 0;
-                    if CM_Get_DevNode_Status(&mut status, &mut problem, dev_data.DevInst, 0) == 0 {
-                        if (status & DN_STARTED != 0)
-                            && (status & DN_HAS_PROBLEM == 0)
-                            && problem == 0
-                        {
-                            running = true;
-                        }
+                    let mut status = CM_DEVNODE_STATUS_FLAGS(0);
+                    let mut problem = CM_PROB(0);
+                    if CM_Get_DevNode_Status(&mut status, &mut problem, dev_data.DevInst, 0)
+                        == CONFIGRET(0)
+                        && (status.0 & DN_STARTED != 0)
+                        && (status.0 & DN_HAS_PROBLEM == 0)
+                        && problem.0 == 0
+                    {
+                        running = true;
                     }
                     break;
                 }
@@ -506,6 +506,7 @@ pub fn get_driver_state() -> (bool, bool) {
 }
 
 #[cfg(windows)]
+#[allow(dead_code)]
 pub fn is_driver_installed() -> bool {
     get_driver_state().0
 }
