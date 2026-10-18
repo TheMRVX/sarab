@@ -609,10 +609,11 @@ dependencies = [
 
 [[package]]
 name = "sarab"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "anyhow",
  "clap",
+ "getrandom",
  "mime_guess",
  "quick-xml",
  "rust-embed",

@@ -2,11 +2,14 @@ use anyhow::Result;
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 use crate::config::{validate_coordinates, SpoofConfig};
 use crate::{driver_comm, installer, reader};
+
+const MAX_JSON_BODY_SIZE: u64 = 64 * 1024; // 64 KB
+const MAX_GPX_BODY_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
 
 #[derive(RustEmbed)]
 #[folder = "../gui/dist/"]
@@ -99,8 +102,8 @@ pub struct SatelliteTelemetry {
 pub fn open_browser(url: &str) {
     #[cfg(windows)]
     {
-        let _ = std::process::Command::new("cmd")
-            .args(["/c", "start", url])
+        let _ = std::process::Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
             .spawn();
     }
     #[cfg(target_os = "macos")]
@@ -113,7 +116,63 @@ pub fn open_browser(url: &str) {
     }
 }
 
-fn get_current_telemetry(route_runner: &crate::route_runner::RouteRunner) -> (f64, f64, f64, f64, f64) {
+pub fn generate_session_token() -> String {
+    let mut buf = [0u8; 16];
+    if getrandom::getrandom(&mut buf).is_ok() {
+        buf.iter().map(|b| format!("{:02x}", b)).collect()
+    } else {
+        format!(
+            "{:016x}{:016x}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos(),
+            std::process::id()
+        )
+    }
+}
+
+fn is_allowed_origin(origin: &str) -> bool {
+    let lower = origin.to_lowercase();
+    lower.starts_with("http://localhost")
+        || lower.starts_with("https://localhost")
+        || lower.starts_with("http://127.0.0.1")
+        || lower.starts_with("https://127.0.0.1")
+        || lower.starts_with("http://[::1]")
+        || lower.starts_with("https://[::1]")
+}
+
+fn get_header_value(request: &tiny_http::Request, name: &str) -> Option<String> {
+    request
+        .headers()
+        .iter()
+        .find(|h| h.field.as_str().as_str().eq_ignore_ascii_case(name))
+        .map(|h| h.value.as_str().to_string())
+}
+
+fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> bool {
+    if let Some(token) = get_header_value(request, "X-Sarab-Token") {
+        if token == expected_token {
+            return true;
+        }
+    }
+    if let Some(auth) = get_header_value(request, "Authorization") {
+        if let Some(bearer) = auth.strip_prefix("Bearer ") {
+            if bearer == expected_token {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn error_json(msg: impl ToString) -> String {
+    serde_json::json!({ "error": msg.to_string() }).to_string()
+}
+
+fn get_current_telemetry(
+    route_runner: &crate::route_runner::RouteRunner,
+) -> (f64, f64, f64, f64, f64) {
     let r_status = route_runner.get_status();
     if r_status.is_running {
         (
@@ -143,14 +202,31 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 open_browser(&local_url);
                 return Ok(());
             }
-            return Err(anyhow::anyhow!("Failed to bind HTTP server to {}: {}", addr, e));
+            return Err(anyhow::anyhow!(
+                "Failed to bind HTTP server to {}: {}",
+                addr,
+                e
+            ));
         }
     };
+
+    let session_token = generate_session_token();
+    let token_path = crate::config::get_session_token_path();
+    if let Some(parent) = token_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(&token_path, &session_token) {
+        eprintln!(
+            "[!] Warning: Could not write session token to {:?}: {}",
+            token_path, e
+        );
+    }
 
     println!("\n========================================================");
     println!("  Sarab Virtual GNSS Web Control Dashboard");
     println!("  URL: {}", local_url);
     println!("  Listening on: http://{}", addr);
+    println!("  Session Token saved to: {:?}", token_path);
     println!("  Press Ctrl+C to stop the dashboard server.");
     println!("========================================================\n");
 
@@ -158,31 +234,52 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         open_browser(&local_url);
     }
 
-    let cors_header = Header::from_bytes(&b"Access-Control-Allow-Origin"[..], &b"*"[..]).unwrap();
-    let cors_methods = Header::from_bytes(
-        &b"Access-Control-Allow-Methods"[..],
-        &b"GET, POST, OPTIONS"[..],
-    )
-    .unwrap();
-    let cors_headers = Header::from_bytes(
-        &b"Access-Control-Allow-Headers"[..],
-        &b"Content-Type, Authorization"[..],
-    )
-    .unwrap();
-
     let route_runner = crate::route_runner::RouteRunner::new();
     let nmea_broadcaster = crate::nmea_broadcaster::NmeaBroadcaster::new();
-    nmea_broadcaster.start_udp_broadcast(10110);
+    nmea_broadcaster.start_udp_broadcast(10110, route_runner.clone());
 
     for mut request in server.incoming_requests() {
         let url_path = request.url().split('?').next().unwrap_or("/").to_string();
 
+        // Origin validation: block cross-origin requests from arbitrary websites
+        if let Some(ref origin) = get_header_value(&request, "Origin") {
+            if !is_allowed_origin(origin) {
+                let forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
+                    .with_status_code(StatusCode(403))
+                    .with_header(
+                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                    );
+                let _ = request.respond(forbidden_resp);
+                continue;
+            }
+        }
+
+        let origin_header_val = get_header_value(&request, "Origin")
+            .filter(|o| is_allowed_origin(o))
+            .unwrap_or_else(|| format!("http://localhost:{}", port));
+
+        let cors_header = Header::from_bytes(
+            &b"Access-Control-Allow-Origin"[..],
+            origin_header_val.as_bytes(),
+        )
+        .unwrap();
+
         // Handle CORS preflight
         if request.method() == &Method::Options {
-            let response = Response::empty(StatusCode(200))
+            let cors_methods = Header::from_bytes(
+                &b"Access-Control-Allow-Methods"[..],
+                &b"GET, POST, OPTIONS"[..],
+            )
+            .unwrap();
+            let cors_headers = Header::from_bytes(
+                &b"Access-Control-Allow-Headers"[..],
+                &b"Content-Type, Authorization, X-Sarab-Token"[..],
+            )
+            .unwrap();
+            let response = Response::empty(StatusCode(204))
                 .with_header(cors_header.clone())
-                .with_header(cors_methods.clone())
-                .with_header(cors_headers.clone());
+                .with_header(cors_methods)
+                .with_header(cors_headers);
             let _ = request.respond(response);
             continue;
         }
@@ -191,6 +288,18 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         if url_path.starts_with("/api/") {
             let json_header =
                 Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+
+            // Validate session token for all /api/* requests
+            if !is_token_valid(&request, &session_token) {
+                let unauth_resp = Response::from_string(error_json(
+                    "Unauthorized: Missing or invalid X-Sarab-Token header",
+                ))
+                .with_status_code(StatusCode(401))
+                .with_header(json_header)
+                .with_header(cors_header.clone());
+                let _ = request.respond(unauth_resp);
+                continue;
+            }
 
             match (request.method(), url_path.as_str()) {
                 (&Method::Get, "/api/config") => {
@@ -205,7 +314,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/config") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     match serde_json::from_str::<WebSpoofConfig>(&content) {
                         Ok(web_cfg) => {
@@ -215,25 +327,19 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                                 web_cfg.altitude,
                                 web_cfg.accuracy,
                             ) {
-                                let err_resp = Response::from_string(format!(
-                                    "{{\"error\":\"{}\"}}",
-                                    e
-                                ))
-                                .with_status_code(StatusCode(400))
-                                .with_header(json_header)
-                                .with_header(cors_header.clone());
+                                let err_resp = Response::from_string(error_json(e))
+                                    .with_status_code(StatusCode(400))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
                                 let _ = request.respond(err_resp);
                                 continue;
                             }
 
                             if let Err(e) = crate::config::validate_drift(web_cfg.drift_radius) {
-                                let err_resp = Response::from_string(format!(
-                                    "{{\"error\":\"{}\"}}",
-                                    e
-                                ))
-                                .with_status_code(StatusCode(400))
-                                .with_header(json_header)
-                                .with_header(cors_header.clone());
+                                let err_resp = Response::from_string(error_json(e))
+                                    .with_status_code(StatusCode(400))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
                                 let _ = request.respond(err_resp);
                                 continue;
                             }
@@ -248,13 +354,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             let _ = request.respond(ok_resp);
                         }
                         Err(e) => {
-                            let err_resp = Response::from_string(format!(
-                                "{{\"error\":\"Invalid JSON: {}\"}}",
-                                e
-                            ))
-                            .with_status_code(StatusCode(400))
-                            .with_header(json_header)
-                            .with_header(cors_header.clone());
+                            let err_resp =
+                                Response::from_string(error_json(format!("Invalid JSON: {}", e)))
+                                    .with_status_code(StatusCode(400))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
                             let _ = request.respond(err_resp);
                         }
                     }
@@ -262,7 +366,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/toggle") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     if let Ok(payload) = serde_json::from_str::<TogglePayload>(&content) {
                         let _ = driver_comm::set_driver_enabled(payload.enabled);
@@ -271,7 +378,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             .with_header(cors_header.clone());
                         let _ = request.respond(ok_resp);
                     } else {
-                        let err_resp = Response::from_string("{\"error\":\"Invalid toggle body\"}")
+                        let err_resp = Response::from_string(error_json("Invalid toggle body"))
                             .with_status_code(StatusCode(400))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -280,11 +387,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 }
 
                 (&Method::Get, "/api/status") => {
-                    let (test_signing, test_signing_details) =
-                        installer::check_test_signing_mode();
+                    let (test_signing, test_signing_details) = installer::check_test_signing_mode();
                     let (location_privacy, location_privacy_details) =
                         reader::check_location_privacy_consent();
                     let bitlocker = installer::check_bitlocker_status();
+                    let driver_installed = installer::is_driver_installed();
 
                     let status_resp = SystemStatusResponse {
                         test_signing,
@@ -292,8 +399,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         location_privacy,
                         location_privacy_details,
                         bitlocker,
-                        driver_installed: true,
-                        driver_running: true,
+                        driver_installed,
+                        driver_running: driver_installed,
                         version: env!("CARGO_PKG_VERSION").to_string(),
                     };
 
@@ -315,10 +422,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             let _ = request.respond(resp);
                         }
                         Err(e) => {
-                            let err_resp = Response::from_string(format!(
-                                "{{\"error\":\"Failed to query live fix: {}\"}}",
+                            let err_resp = Response::from_string(error_json(format!(
+                                "Failed to query live fix: {}",
                                 e
-                            ))
+                            )))
                             .with_status_code(StatusCode(500))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -328,13 +435,19 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 }
 
                 (&Method::Get, "/api/satellites") => {
-                    let (lat, lon, alt, speed_kmh, heading_deg) = get_current_telemetry(&route_runner);
+                    let (lat, lon, alt, speed_kmh, heading_deg) =
+                        get_current_telemetry(&route_runner);
                     let epoch_secs = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(1700000000);
                     let (sentences, satellites) = crate::nmea::generate_nmea_bundle(
-                        lat, lon, alt, speed_kmh, heading_deg, epoch_secs,
+                        lat,
+                        lon,
+                        alt,
+                        speed_kmh,
+                        heading_deg,
+                        epoch_secs,
                     );
                     nmea_broadcaster.update_sentences(sentences);
 
@@ -379,12 +492,22 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         #[serde(default)]
                         profile: crate::route_runner::RouteProfile,
                     }
-                    fn default_speed() -> f64 { 40.0 }
+                    fn default_speed() -> f64 {
+                        40.0
+                    }
 
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
                     if let Ok(req) = serde_json::from_str::<StartRouteRequest>(&content) {
-                        match route_runner.start(req.waypoints, req.speed_kmh, req.is_looping, req.profile) {
+                        match route_runner.start(
+                            req.waypoints,
+                            req.speed_kmh,
+                            req.is_looping,
+                            req.profile,
+                        ) {
                             Ok(_) => {
                                 let resp = Response::from_string("{\"status\":\"ok\"}")
                                     .with_header(json_header)
@@ -392,7 +515,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                                 let _ = request.respond(resp);
                             }
                             Err(e) => {
-                                let resp = Response::from_string(format!("{{\"error\":\"{}\"}}", e))
+                                let resp = Response::from_string(error_json(e))
                                     .with_status_code(StatusCode(400))
                                     .with_header(json_header)
                                     .with_header(cors_header.clone());
@@ -400,7 +523,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             }
                         }
                     } else {
-                        let resp = Response::from_string("{\"error\":\"Invalid route start payload\"}")
+                        let resp = Response::from_string(error_json("Invalid route start payload"))
                             .with_status_code(StatusCode(400))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -434,12 +557,17 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/route/gpx") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_GPX_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     // Accept either raw XML string or JSON { "xml": "..." }
                     let xml_str = if content.trim_start().starts_with('{') {
                         #[derive(Deserialize)]
-                        struct GpxJson { xml: String }
+                        struct GpxJson {
+                            xml: String,
+                        }
                         serde_json::from_str::<GpxJson>(&content)
                             .map(|j| j.xml)
                             .unwrap_or(content)
@@ -456,7 +584,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             let _ = request.respond(resp);
                         }
                         Err(e) => {
-                            let resp = Response::from_string(format!("{{\"error\":\"{}\"}}", e))
+                            let resp = Response::from_string(error_json(e))
                                 .with_status_code(StatusCode(400))
                                 .with_header(json_header)
                                 .with_header(cors_header.clone());
@@ -472,23 +600,31 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         #[serde(default = "default_osrm_prof")]
                         profile: String,
                     }
-                    fn default_osrm_prof() -> String { "driving".to_string() }
+                    fn default_osrm_prof() -> String {
+                        "driving".to_string()
+                    }
 
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     if let Ok(osrm_req) = serde_json::from_str::<OsrmRequest>(&content) {
                         if osrm_req.coordinates.len() < 2 {
-                            let resp = Response::from_string("{\"error\":\"Need at least 2 points for OSRM\"}")
-                                .with_status_code(StatusCode(400))
-                                .with_header(json_header)
-                                .with_header(cors_header.clone());
+                            let resp = Response::from_string(error_json(
+                                "Need at least 2 points for OSRM",
+                            ))
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
                             let _ = request.respond(resp);
                             continue;
                         }
 
-                        // OSRM expects coordinates as lon,lat;lon,lat
-                        let coord_str = osrm_req.coordinates.iter()
+                        let coord_str = osrm_req
+                            .coordinates
+                            .iter()
                             .map(|c| format!("{:.6},{:.6}", c[1], c[0]))
                             .collect::<Vec<_>>()
                             .join(";");
@@ -516,15 +652,18 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                                 let _ = request.respond(resp);
                             }
                             Err(e) => {
-                                let resp = Response::from_string(format!("{{\"error\":\"OSRM routing failed: {}\"}}", e))
-                                    .with_status_code(StatusCode(502))
-                                    .with_header(json_header)
-                                    .with_header(cors_header.clone());
+                                let resp = Response::from_string(error_json(format!(
+                                    "OSRM routing failed: {}",
+                                    e
+                                )))
+                                .with_status_code(StatusCode(502))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
                                 let _ = request.respond(resp);
                             }
                         }
                     } else {
-                        let resp = Response::from_string("{\"error\":\"Invalid OSRM payload\"}")
+                        let resp = Response::from_string(error_json("Invalid OSRM payload"))
                             .with_status_code(StatusCode(400))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -533,13 +672,19 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 }
 
                 (&Method::Get, "/api/nmea/latest") => {
-                    let (lat, lon, alt, speed_kmh, heading_deg) = get_current_telemetry(&route_runner);
+                    let (lat, lon, alt, speed_kmh, heading_deg) =
+                        get_current_telemetry(&route_runner);
                     let epoch_secs = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
                         .unwrap_or(1700000000);
                     let (sentences, _) = crate::nmea::generate_nmea_bundle(
-                        lat, lon, alt, speed_kmh, heading_deg, epoch_secs,
+                        lat,
+                        lon,
+                        alt,
+                        speed_kmh,
+                        heading_deg,
+                        epoch_secs,
                     );
                     nmea_broadcaster.update_sentences(sentences.clone());
 
@@ -547,13 +692,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     struct NmeaResponse {
                         sentences: Vec<String>,
                         udp_port: u16,
-                        tcp_port: u16,
                     }
 
                     let resp_data = NmeaResponse {
                         sentences,
                         udp_port: 10110,
-                        tcp_port: 10111,
                     };
                     let body = serde_json::to_string(&resp_data).unwrap_or_default();
                     let resp = Response::from_string(body)
@@ -573,7 +716,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/shield/toggle") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     #[derive(Deserialize)]
                     struct ShieldTogglePayload {
@@ -587,7 +733,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             .with_header(cors_header.clone());
                         let _ = request.respond(ok_resp);
                     } else {
-                        let err_resp = Response::from_string("{\"error\":\"Invalid shield payload\"}")
+                        let err_resp = Response::from_string(error_json("Invalid shield payload"))
                             .with_status_code(StatusCode(400))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -606,7 +752,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/service/action") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     #[derive(Deserialize)]
                     struct ServiceActionPayload {
@@ -616,7 +765,9 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                     if let Ok(payload) = serde_json::from_str::<ServiceActionPayload>(&content) {
                         let res = match payload.action.as_str() {
-                            "install" => crate::service::win::install_service(payload.port.unwrap_or(8090)),
+                            "install" => {
+                                crate::service::win::install_service(payload.port.unwrap_or(8090))
+                            }
                             "uninstall" => crate::service::win::uninstall_service(),
                             "start" => crate::service::win::start_service(),
                             "stop" => crate::service::win::stop_service(),
@@ -629,15 +780,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                                 .with_header(cors_header.clone());
                             let _ = request.respond(ok_resp);
                         } else {
-                            let err_msg = format!("{{\"error\":\"{}\"}}", res.unwrap_err().to_string().replace('"', "\\\""));
-                            let err_resp = Response::from_string(err_msg)
+                            let err_resp = Response::from_string(error_json(res.unwrap_err()))
                                 .with_status_code(StatusCode(500))
                                 .with_header(json_header)
                                 .with_header(cors_header.clone());
                             let _ = request.respond(err_resp);
                         }
                     } else {
-                        let err_resp = Response::from_string("{\"error\":\"Invalid payload\"}")
+                        let err_resp = Response::from_string(error_json("Invalid payload"))
                             .with_status_code(StatusCode(400))
                             .with_header(json_header)
                             .with_header(cors_header.clone());
@@ -657,7 +807,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Post, "/api/environment/set") => {
                     let mut content = String::new();
-                    let _ = request.as_reader().read_to_string(&mut content);
+                    let _ = request
+                        .as_reader()
+                        .take(MAX_JSON_BODY_SIZE)
+                        .read_to_string(&mut content);
 
                     #[derive(Deserialize)]
                     struct EnvironmentPayload {
@@ -676,16 +829,17 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             .with_header(cors_header.clone());
                         let _ = request.respond(resp);
                     } else {
-                        let err_resp = Response::from_string("{\"error\":\"Invalid environment payload\"}")
-                            .with_status_code(StatusCode(400))
-                            .with_header(json_header)
-                            .with_header(cors_header.clone());
+                        let err_resp =
+                            Response::from_string(error_json("Invalid environment payload"))
+                                .with_status_code(StatusCode(400))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
                         let _ = request.respond(err_resp);
                     }
                 }
 
                 _ => {
-                    let resp = Response::from_string("{\"error\":\"Endpoint not found\"}")
+                    let resp = Response::from_string(error_json("Endpoint not found"))
                         .with_status_code(StatusCode(404))
                         .with_header(json_header)
                         .with_header(cors_header.clone());
@@ -702,6 +856,42 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         } else {
             trimmed_path
         };
+
+        if path == "index.html" {
+            if let Some(index_file) = Asset::get("index.html") {
+                let mime_header =
+                    Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+                        .unwrap();
+                let raw = index_file.data.into_owned();
+                let html_str = String::from_utf8_lossy(&raw);
+                let injected = if html_str.contains("<head>") {
+                    html_str.replacen(
+                        "<head>",
+                        &format!(
+                            "<head><meta name=\"sarab-token\" content=\"{}\">",
+                            session_token
+                        ),
+                        1,
+                    )
+                } else {
+                    format!(
+                        "<meta name=\"sarab-token\" content=\"{}\">{}",
+                        session_token, html_str
+                    )
+                };
+                let bytes = injected.into_bytes();
+                let len = bytes.len();
+                let resp = Response::new(
+                    StatusCode(200),
+                    vec![mime_header, cors_header.clone()],
+                    Cursor::new(bytes),
+                    Some(len),
+                    None,
+                );
+                let _ = request.respond(resp);
+                continue;
+            }
+        }
 
         if let Some(file) = Asset::get(path) {
             let mime = from_path(path).first_or_octet_stream();
@@ -721,12 +911,29 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             // SPA fallback: return index.html for client-side routing
             let mime_header =
                 Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap();
-            let data = index_file.data.into_owned();
-            let len = data.len();
+            let raw = index_file.data.into_owned();
+            let html_str = String::from_utf8_lossy(&raw);
+            let injected = if html_str.contains("<head>") {
+                html_str.replacen(
+                    "<head>",
+                    &format!(
+                        "<head><meta name=\"sarab-token\" content=\"{}\">",
+                        session_token
+                    ),
+                    1,
+                )
+            } else {
+                format!(
+                    "<meta name=\"sarab-token\" content=\"{}\">{}",
+                    session_token, html_str
+                )
+            };
+            let bytes = injected.into_bytes();
+            let len = bytes.len();
             let resp = Response::new(
                 StatusCode(200),
                 vec![mime_header, cors_header.clone()],
-                Cursor::new(data),
+                Cursor::new(bytes),
                 Some(len),
                 None,
             );
@@ -749,7 +956,10 @@ mod tests {
     #[test]
     fn test_embedded_assets_include_index_html() {
         let index = Asset::get("index.html");
-        assert!(index.is_some(), "index.html must be present in embedded assets");
+        assert!(
+            index.is_some(),
+            "index.html must be present in embedded assets"
+        );
         let file = index.unwrap();
         let content = std::str::from_utf8(file.data.as_ref()).unwrap();
         assert!(
@@ -808,5 +1018,22 @@ mod tests {
         assert!(parsed.drift_enabled);
         assert_eq!(parsed.drift_radius, 2.0);
     }
-}
 
+    #[test]
+    fn test_session_token_generation() {
+        let token1 = generate_session_token();
+        let token2 = generate_session_token();
+        assert_eq!(token1.len(), 32);
+        assert_eq!(token2.len(), 32);
+        assert_ne!(token1, token2);
+    }
+
+    #[test]
+    fn test_allowed_origin_validation() {
+        assert!(is_allowed_origin("http://localhost:8090"));
+        assert!(is_allowed_origin("http://127.0.0.1:8090"));
+        assert!(is_allowed_origin("http://[::1]:8090"));
+        assert!(!is_allowed_origin("http://evil.com"));
+        assert!(!is_allowed_origin("http://attacker.local"));
+    }
+}

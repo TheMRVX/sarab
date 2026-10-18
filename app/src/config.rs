@@ -67,12 +67,26 @@ pub fn validate_drift(radius: f64) -> Result<()> {
     Ok(())
 }
 
-pub fn get_config_path() -> PathBuf {
-    if let Ok(appdata) = std::env::var("APPDATA") {
-        PathBuf::from(appdata).join("Sarab").join("config.toml")
-    } else {
-        PathBuf::from("config.toml")
+pub fn get_sarab_dir() -> PathBuf {
+    #[cfg(windows)]
+    {
+        if let Ok(program_data) = std::env::var("ProgramData") {
+            return PathBuf::from(program_data).join("Sarab");
+        }
     }
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        PathBuf::from(appdata).join("Sarab")
+    } else {
+        std::env::temp_dir().join("Sarab")
+    }
+}
+
+pub fn get_config_path() -> PathBuf {
+    get_sarab_dir().join("config.toml")
+}
+
+pub fn get_session_token_path() -> PathBuf {
+    get_sarab_dir().join(".session_token")
 }
 
 pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
