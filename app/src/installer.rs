@@ -113,7 +113,7 @@ pub fn check_bitlocker_status() -> String {
         if let Ok(mut write_guard) = BITLOCKER_CACHE.write() {
             *write_guard = Some((std::time::Instant::now(), status.clone()));
         }
-        return status;
+        status
     }
     #[cfg(not(windows))]
     "UNKNOWN / NOT DETECTED".to_string()
@@ -187,7 +187,7 @@ pub fn remove_devices_by_hwid(target_hwid: &str) -> usize {
                 std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 2);
             if SetupDiGetDeviceRegistryPropertyW(
                 dev_info,
-                &mut dev_data,
+                &dev_data,
                 SPDRP_HARDWAREID,
                 None,
                 Some(byte_slice),
@@ -202,8 +202,7 @@ pub fn remove_devices_by_hwid(target_hwid: &str) -> usize {
                     .contains(&target_hwid.to_lowercase())
                 {
                     println!("[+] Removing device: {}", hwid_str.trim_matches('\0'));
-                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&mut dev_data)).is_ok()
-                    {
+                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&dev_data)).is_ok() {
                         removed_count += 1;
                         was_removed = true;
                     }
@@ -331,7 +330,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
             ));
         }
 
-        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&mut dev_data));
+        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&dev_data));
         let _ = SetupDiDestroyDeviceInfoList(dev_info);
 
         if reg_res.is_err() {
@@ -435,7 +434,7 @@ pub fn is_driver_installed() -> bool {
                 std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 2);
             if SetupDiGetDeviceRegistryPropertyW(
                 dev_info,
-                &mut dev_data,
+                &dev_data,
                 SPDRP_HARDWAREID,
                 None,
                 Some(byte_slice),
