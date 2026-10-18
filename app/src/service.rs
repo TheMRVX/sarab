@@ -97,10 +97,14 @@ pub mod win {
     }
 
     pub fn install_service(port: u16) -> Result<()> {
-        let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+        let current_exe =
+            std::env::current_exe().context("Failed to get current executable path")?;
 
-        let manager = ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CREATE_SERVICE)
-            .context("Failed to connect to Service Control Manager (administrator privileges required)")?;
+        let manager =
+            ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CREATE_SERVICE)
+                .context(
+                "Failed to connect to Service Control Manager (administrator privileges required)",
+            )?;
 
         let service_info = ServiceInfo {
             name: OsString::from(SERVICE_NAME),
@@ -176,7 +180,9 @@ pub mod win {
 
         println!("[*] Starting Sarab Windows Service...");
         let empty_args: &[&OsStr] = &[];
-        service.start(empty_args).context("Failed to start SarabService")?;
+        service
+            .start(empty_args)
+            .context("Failed to start SarabService")?;
         println!("[+] Sarab Windows Service started successfully.");
         Ok(())
     }
@@ -224,19 +230,20 @@ pub mod win {
     }
 
     pub fn query_service_api_status() -> super::ServiceApiStatus {
-        let manager = match ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT) {
-            Ok(m) => m,
-            Err(_) => {
-                return super::ServiceApiStatus {
-                    supported: true,
-                    installed: false,
-                    running: false,
-                    state: "SCM Inaccessible".to_string(),
-                    service_name: SERVICE_NAME.to_string(),
-                    display_name: SERVICE_DISPLAY_NAME.to_string(),
+        let manager =
+            match ServiceManager::local_computer(None::<&OsStr>, ServiceManagerAccess::CONNECT) {
+                Ok(m) => m,
+                Err(_) => {
+                    return super::ServiceApiStatus {
+                        supported: true,
+                        installed: false,
+                        running: false,
+                        state: "SCM Inaccessible".to_string(),
+                        service_name: SERVICE_NAME.to_string(),
+                        display_name: SERVICE_DISPLAY_NAME.to_string(),
+                    }
                 }
-            }
-        };
+            };
 
         match manager.open_service(SERVICE_NAME, ServiceAccess::QUERY_STATUS) {
             Ok(service) => match service.query_status() {

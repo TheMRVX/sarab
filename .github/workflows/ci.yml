@@ -39,6 +39,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-pc-windows-msvc
+          components: rustfmt, clippy
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
@@ -57,6 +58,12 @@ jobs:
           cd gui
           npm ci
           npm run build
+
+      - name: Check Rust formatting & Clippy lints
+        run: |
+          cd app
+          cargo fmt --check
+          cargo clippy --locked -- -D warnings
 
       - name: Run Rust Unit Tests
         run: |
@@ -93,8 +100,8 @@ jobs:
         run: |
           msbuild driver\SarabGnss.vcxproj /p:Configuration=Release /p:Platform=x64 /p:TargetVersion=Windows10 /p:WDF_INC_DIR="%WDF_INC_DIR%" /p:WDF_LIB_DIR="%WDF_LIB_DIR%" /v:normal
 
-      - name: Build Rust CLI Check
+      - name: Build Rust CLI & Service (Release)
         shell: cmd
         run: |
           cd app
-          cargo check --locked
+          cargo build --release --locked

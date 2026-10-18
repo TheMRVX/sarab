@@ -124,12 +124,20 @@ impl DeadReckoningEngine {
             EnvironmentMode::Tunnel => {
                 // Distance traveled along heading vector: d = v * dt
                 let dist_meters = self.last_known_speed_mps * delta_time_sec;
-                let (new_lat, new_lon) =
-                    crate::kinematics::destination_point(current_lat, current_lon, dist_meters, self.last_known_heading);
+                let (new_lat, new_lon) = crate::kinematics::destination_point(
+                    current_lat,
+                    current_lon,
+                    dist_meters,
+                    self.last_known_heading,
+                );
 
                 // Error expands linearly with time: E(t) = E0 + alpha * t
-                let elapsed = self.start_time.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
-                let accuracy = (self.initial_accuracy_meters + self.error_growth_rate * elapsed).min(100.0);
+                let elapsed = self
+                    .start_time
+                    .map(|t| t.elapsed().as_secs_f64())
+                    .unwrap_or(0.0);
+                let accuracy =
+                    (self.initial_accuracy_meters + self.error_growth_rate * elapsed).min(100.0);
 
                 (new_lat, new_lon, accuracy)
             }
@@ -142,7 +150,8 @@ impl DeadReckoningEngine {
 
                 let r_earth = 6371000.0;
                 let d_lat = (jitter_north / r_earth) * (180.0 / std::f64::consts::PI);
-                let d_lon = (jitter_east / (r_earth * current_lat.to_radians().cos())) * (180.0 / std::f64::consts::PI);
+                let d_lon = (jitter_east / (r_earth * current_lat.to_radians().cos()))
+                    * (180.0 / std::f64::consts::PI);
 
                 (current_lat + d_lat, current_lon + d_lon, 12.0)
             }
@@ -152,19 +161,22 @@ impl DeadReckoningEngine {
                 (current_lat, current_lon, 35.0)
             }
 
-            EnvironmentMode::OpenSky => {
-                (current_lat, current_lon, 1.0)
-            }
+            EnvironmentMode::OpenSky => (current_lat, current_lon, 1.0),
         }
     }
 
     /// Query the current state of the engine
     pub fn query_state(&self) -> DeadReckoningState {
-        let elapsed = self.start_time.map(|t| t.elapsed().as_secs_f64()).unwrap_or(0.0);
+        let elapsed = self
+            .start_time
+            .map(|t| t.elapsed().as_secs_f64())
+            .unwrap_or(0.0);
         let accuracy = match self.mode {
             EnvironmentMode::OpenSky => 1.0,
             EnvironmentMode::UrbanCanyon => 12.0,
-            EnvironmentMode::Tunnel => (self.initial_accuracy_meters + self.error_growth_rate * elapsed).min(100.0),
+            EnvironmentMode::Tunnel => {
+                (self.initial_accuracy_meters + self.error_growth_rate * elapsed).min(100.0)
+            }
             EnvironmentMode::Underground => 35.0,
         };
 
@@ -220,7 +232,10 @@ pub fn set_driver_environment_mode(mode: EnvironmentMode) -> Result<()> {
             None,
         );
         if status.is_err() {
-            return Err(anyhow::anyhow!("Failed to open registry for EnvironmentMode: {:?}", status));
+            return Err(anyhow::anyhow!(
+                "Failed to open registry for EnvironmentMode: {:?}",
+                status
+            ));
         }
 
         let name = HSTRING::from("EnvironmentMode");
@@ -231,7 +246,10 @@ pub fn set_driver_environment_mode(mode: EnvironmentMode) -> Result<()> {
         let _ = RegCloseKey(hkey);
 
         if res.is_err() {
-            return Err(anyhow::anyhow!("Failed to write EnvironmentMode registry value: {:?}", res));
+            return Err(anyhow::anyhow!(
+                "Failed to write EnvironmentMode registry value: {:?}",
+                res
+            ));
         }
 
         Ok(())
@@ -284,7 +302,8 @@ mod tests {
 
         let start_lat = 40.7580;
         let start_lon = -73.9855;
-        let (jitter_lat, jitter_lon, acc) = engine.step_inertial_propagation(start_lat, start_lon, 1.0);
+        let (jitter_lat, jitter_lon, acc) =
+            engine.step_inertial_propagation(start_lat, start_lon, 1.0);
 
         assert!(acc >= 10.0);
         assert!((jitter_lat - start_lat).abs() < 0.001);

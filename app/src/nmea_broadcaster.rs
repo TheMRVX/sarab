@@ -1,6 +1,5 @@
-//! NMEA UDP and TCP network broadcaster for Sarab GNSS.
-//! Broadcasts standard NMEA 0183 sentences on UDP port 10110 (OpenCPN / marine GIS default)
-//! and serves connected TCP clients on port 10111.
+//! NMEA UDP network broadcaster for Sarab GNSS.
+//! Broadcasts standard NMEA 0183 sentences on UDP port 10110 (OpenCPN / marine GIS default).
 
 use std::net::UdpSocket;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -12,6 +11,12 @@ use std::time::Duration;
 pub struct NmeaBroadcaster {
     latest_sentences: Arc<Mutex<Vec<String>>>,
     is_running: Arc<AtomicBool>,
+}
+
+impl Default for NmeaBroadcaster {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl NmeaBroadcaster {
@@ -37,8 +42,12 @@ impl NmeaBroadcaster {
             .unwrap_or_default()
     }
 
-    /// Start the background UDP broadcaster loop on port 10110
-    pub fn start_udp_broadcast(&self, udp_port: u16) {
+    /// Start the autonomous background UDP broadcaster loop on port 10110
+    pub fn start_udp_broadcast(
+        &self,
+        udp_port: u16,
+        route_runner: crate::route_runner::RouteRunner,
+    ) {
         if self.is_running.swap(true, Ordering::SeqCst) {
             return; // already started
         }
@@ -62,13 +71,44 @@ impl NmeaBroadcaster {
             let localhost_addr = format!("127.0.0.1:{}", udp_port);
 
             while running_arc.load(Ordering::SeqCst) {
-                let lines = if let Ok(lock) = sentences_arc.lock() {
-                    lock.clone()
-                } else {
-                    Vec::new()
+                // Fetch dynamic coordinates from active route or driver registry
+                let (lat, lon, alt, speed_kmh, heading_deg) = {
+                    let r_status = route_runner.get_status();
+                    if r_status.is_running {
+                        (
+                            r_status.current_lat,
+                            r_status.current_lon,
+                            r_status.current_alt,
+                            r_status.current_speed_kmh,
+                            r_status.current_heading,
+                        )
+                    } else if let Ok(params) = crate::driver_comm::get_driver_parameters() {
+                        (params.lat, params.lon, params.alt, 0.0, 0.0)
+                    } else {
+                        let cfg = crate::config::load_local_config();
+                        (cfg.lat, cfg.lon, cfg.alt, 0.0, 0.0)
+                    }
                 };
 
-                for line in lines {
+                let epoch_secs = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(1700000000);
+
+                let (bundle, _) = crate::nmea::generate_nmea_bundle(
+                    lat,
+                    lon,
+                    alt,
+                    speed_kmh,
+                    heading_deg,
+                    epoch_secs,
+                );
+
+                if let Ok(mut lock) = sentences_arc.lock() {
+                    *lock = bundle.clone();
+                }
+
+                for line in &bundle {
                     let data = format!("{}\r\n", line);
                     let _ = socket.send_to(data.as_bytes(), &broadcast_addr);
                     let _ = socket.send_to(data.as_bytes(), &localhost_addr);

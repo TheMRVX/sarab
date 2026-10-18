@@ -18,6 +18,7 @@ typedef struct _DEVICE_CONTEXT {
     ULONG               FixSequenceNumber;  // Total heartbeats/fixes completed
 
     SpoofConfig         Config;
+    DriftState          Drift;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 WDF_DECLARE_CONTEXT_TYPE_WITH_NAME(DEVICE_CONTEXT, DeviceGetContext)

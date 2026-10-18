@@ -1,9 +1,24 @@
 import { SpoofConfig, SystemStatus, LiveLocation, SatelliteInfo } from '../types';
 
-// Check if running inside Tauri runtime
-const isTauri = (): boolean => {
-  return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
-};
+export function getSessionToken(): string {
+  if (typeof document !== 'undefined') {
+    const meta = document.querySelector('meta[name="sarab-token"]');
+    return meta?.getAttribute('content') || '';
+  }
+  return '';
+}
+
+export async function apiFetch(input: string, init?: RequestInit): Promise<Response> {
+  const token = getSessionToken();
+  const headers = new Headers(init?.headers || {});
+  if (token && !headers.has('X-Sarab-Token')) {
+    headers.set('X-Sarab-Token', token);
+  }
+  return fetch(input, {
+    ...init,
+    headers,
+  });
+}
 
 // Default initial config (Tehran Azadi Square)
 const DEFAULT_CONFIG: SpoofConfig = {
@@ -20,17 +35,8 @@ let memoryConfig: SpoofConfig = { ...DEFAULT_CONFIG };
 
 export const api = {
   async getSpoofConfig(): Promise<SpoofConfig> {
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<SpoofConfig>('get_spoof_config');
-      } catch (e) {
-        console.warn('Tauri invoke failed, falling back to local state:', e);
-      }
-    }
-    // Web REST or local fallback
     try {
-      const res = await fetch('/api/config');
+      const res = await apiFetch('/api/config');
       if (res.ok) return await res.json();
     } catch {
       // Offline / standalone preview
@@ -40,59 +46,35 @@ export const api = {
 
   async applySpoofConfig(config: SpoofConfig): Promise<boolean> {
     memoryConfig = { ...config };
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<boolean>('apply_spoof_config', { config });
-      } catch (e) {
-        console.warn('Tauri invoke failed:', e);
-      }
-    }
     try {
-      const res = await fetch('/api/config', {
+      const res = await apiFetch('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config),
       });
       return res.ok;
     } catch {
-      return true;
+      return false;
     }
   },
 
   async toggleSpoof(enabled: boolean): Promise<boolean> {
     memoryConfig.enabled = enabled;
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<boolean>('toggle_spoof', { enabled });
-      } catch (e) {
-        console.warn('Tauri invoke failed:', e);
-      }
-    }
     try {
-      const res = await fetch('/api/toggle', {
+      const res = await apiFetch('/api/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled }),
       });
       return res.ok;
     } catch {
-      return true;
+      return false;
     }
   },
 
   async getSystemStatus(): Promise<SystemStatus> {
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<SystemStatus>('get_system_status');
-      } catch (e) {
-        console.warn('Tauri invoke failed:', e);
-      }
-    }
     try {
-      const res = await fetch('/api/status');
+      const res = await apiFetch('/api/status');
       if (res.ok) return await res.json();
     } catch {}
 
@@ -109,16 +91,8 @@ export const api = {
   },
 
   async queryLiveLocation(): Promise<LiveLocation> {
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<LiveLocation>('query_live_location');
-      } catch (e) {
-        console.warn('Tauri invoke failed:', e);
-      }
-    }
     try {
-      const res = await fetch('/api/read');
+      const res = await apiFetch('/api/read');
       if (res.ok) return await res.json();
     } catch {}
 
@@ -134,14 +108,8 @@ export const api = {
   },
 
   async getSatellites(): Promise<SatelliteInfo[]> {
-    if (isTauri()) {
-      try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        return await invoke<SatelliteInfo[]>('get_satellites');
-      } catch {}
-    }
     try {
-      const res = await fetch('/api/satellites');
+      const res = await apiFetch('/api/satellites');
       if (res.ok) return await res.json();
     } catch {}
     // Fallback simulation

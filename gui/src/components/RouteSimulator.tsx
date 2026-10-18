@@ -30,6 +30,7 @@ import AltRouteIcon from '@mui/icons-material/AltRoute';
 import UploadFileIcon from '@mui/icons-material/UploadFile';
 import NavigationIcon from '@mui/icons-material/Navigation';
 import { Waypoint, RouteProfile, SpoofConfig, RouteStatus } from '../types';
+import { apiFetch } from '../api/client';
 
 interface RouteSimulatorProps {
   currentConfig: SpoofConfig;
@@ -161,7 +162,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
   useEffect(() => {
     const checkServerStatus = async () => {
       try {
-        const res = await fetch('/api/route/status');
+        const res = await apiFetch('/api/route/status');
         if (res.ok) {
           const data: RouteStatus = await res.json();
           setIsPlaying(data.is_running);
@@ -199,6 +200,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       id: `wp-${Date.now()}`,
       lat: currentConfig.latitude,
       lon: currentConfig.longitude,
+      alt: currentConfig.altitude,
       name: `Point ${waypoints.length + 1}`,
     };
     const updated = [...waypoints, newWp];
@@ -215,7 +217,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
   const handleClearWaypoints = async () => {
     try {
-      await fetch('/api/route/stop', { method: 'POST' });
+      await apiFetch('/api/route/stop', { method: 'POST' });
     } catch {
       // Ignore
     }
@@ -232,7 +234,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
     if (isPlaying && !isPaused) {
       try {
-        await fetch('/api/route/pause', { method: 'POST' });
+        await apiFetch('/api/route/pause', { method: 'POST' });
         setIsPaused(true);
       } catch (err) {
         console.error(err);
@@ -242,7 +244,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
     if (isPlaying && isPaused) {
       try {
-        await fetch('/api/route/resume', { method: 'POST' });
+        await apiFetch('/api/route/resume', { method: 'POST' });
         setIsPaused(false);
       } catch (err) {
         console.error(err);
@@ -252,13 +254,13 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
     try {
       const payload = {
-        waypoints: waypoints.map((w) => ({ lat: w.lat, lon: w.lon })),
+        waypoints: waypoints.map((w) => ({ lat: w.lat, lon: w.lon, alt: w.alt, name: w.name })),
         speed_kmh: speedKmh,
         is_looping: isLooping,
         profile: profile === 'walking' ? 'walking' : profile === 'cycling' ? 'cycling' : 'driving',
       };
 
-      const res = await fetch('/api/route/start', {
+      const res = await apiFetch('/api/route/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -280,7 +282,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
   const handleStopSimulation = async () => {
     try {
-      await fetch('/api/route/stop', { method: 'POST' });
+      await apiFetch('/api/route/stop', { method: 'POST' });
     } catch {
       // Ignore
     }
@@ -300,7 +302,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     setStatusMessage('Querying OSRM road network...');
 
     try {
-      const res = await fetch('/api/route/osrm', {
+      const res = await apiFetch('/api/route/osrm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -349,7 +351,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       if (!content) return;
 
       try {
-        const res = await fetch('/api/route/gpx', {
+        const res = await apiFetch('/api/route/gpx', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ xml: content }),
@@ -361,6 +363,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
             id: `gpx-${idx}-${Date.now()}`,
             lat: parseFloat(w.lat.toFixed(7)),
             lon: parseFloat(w.lon.toFixed(7)),
+            alt: w.alt !== undefined ? parseFloat(w.alt.toFixed(2)) : undefined,
             name: w.time ? `WP ${idx + 1} (${w.time.slice(11, 19)})` : `WP ${idx + 1}`,
           }));
 

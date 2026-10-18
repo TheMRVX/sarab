@@ -11,6 +11,7 @@ import {
 import ShieldIcon from '@mui/icons-material/Shield';
 import SecurityIcon from '@mui/icons-material/Security';
 import WifiOffIcon from '@mui/icons-material/WifiOff';
+import { apiFetch } from '../api/client';
 
 interface ShieldStatus {
   rtk_shield_enabled: boolean;
@@ -32,7 +33,7 @@ export const SecurityShield: React.FC = () => {
 
   const fetchStatus = async () => {
     try {
-      const res = await fetch('http://localhost:8090/api/shield/status');
+      const res = await apiFetch('/api/shield/status');
       if (res.ok) {
         const data = await res.json();
         setShield(data);
@@ -51,7 +52,7 @@ export const SecurityShield: React.FC = () => {
   const handleToggle = async (checked: boolean) => {
     setLoading(true);
     try {
-      const res = await fetch('http://localhost:8090/api/shield/toggle', {
+      const res = await apiFetch('/api/shield/toggle', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ enabled: checked }),

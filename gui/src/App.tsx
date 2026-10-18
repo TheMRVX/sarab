@@ -232,14 +232,11 @@ export const App: React.FC = () => {
 
   // Handle route simulation coordinates update
   const handleRouteUpdateCoordinates = (lat: number, lon: number) => {
-    const updated: SpoofConfig = {
-      ...config,
+    setConfig((prev) => ({
+      ...prev,
       latitude: lat,
       longitude: lon,
-    };
-    setConfig(updated);
-    // Fire and forget update to driver
-    api.applySpoofConfig(updated).catch(() => {});
+    }));
   };
 
   return (

@@ -1,9 +1,9 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use anyhow::{anyhow, Result};
+use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::Duration;
-use anyhow::{anyhow, Result};
-use serde::{Deserialize, Serialize};
 
 use crate::driver_comm;
 use crate::gpx::Waypoint;
@@ -12,18 +12,13 @@ use crate::kinematics::{
     smooth_bearing,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum RouteProfile {
+    #[default]
     Driving,
     Cycling,
     Walking,
-}
-
-impl Default for RouteProfile {
-    fn default() -> Self {
-        Self::Driving
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -48,6 +43,7 @@ struct RouteInternalState {
     current_index: usize,
     segment_progress: f64, // 0.0 .. 1.0
     speed_kmh: f64,
+    effective_speed_kmh: f64,
     current_heading: f64,
     current_lat: f64,
     current_lon: f64,
@@ -63,6 +59,7 @@ struct RouteInternalState {
 pub struct RouteRunner {
     state: Arc<RwLock<RouteInternalState>>,
     stop_signal: Arc<AtomicBool>,
+    generation: Arc<AtomicU64>,
 }
 
 impl Default for RouteRunner {
@@ -78,6 +75,7 @@ impl RouteRunner {
             current_index: 0,
             segment_progress: 0.0,
             speed_kmh: 40.0,
+            effective_speed_kmh: 0.0,
             current_heading: 0.0,
             current_lat: 35.6997,
             current_lon: 51.3380,
@@ -92,6 +90,7 @@ impl RouteRunner {
         Self {
             state: Arc::new(RwLock::new(initial_state)),
             stop_signal: Arc::new(AtomicBool::new(false)),
+            generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -106,9 +105,10 @@ impl RouteRunner {
             return Err(anyhow!("Route requires at least 2 waypoints"));
         }
 
-        // Stop any currently running loop
+        // Signal any previous worker thread to exit
         self.stop_signal.store(true, Ordering::SeqCst);
-        thread::sleep(Duration::from_millis(50));
+        let my_gen = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        self.stop_signal.store(false, Ordering::SeqCst);
 
         let initial_lat = waypoints[0].lat;
         let initial_lon = waypoints[0].lon;
@@ -121,11 +121,15 @@ impl RouteRunner {
         );
 
         {
-            let mut s = self.state.write().map_err(|e| anyhow!("Lock poison: {}", e))?;
+            let mut s = self
+                .state
+                .write()
+                .map_err(|e| anyhow!("Lock poison: {}", e))?;
             s.waypoints = waypoints;
             s.current_index = 0;
             s.segment_progress = 0.0;
             s.speed_kmh = speed_kmh.max(1.0);
+            s.effective_speed_kmh = speed_kmh.max(1.0);
             s.current_heading = initial_heading;
             s.current_lat = initial_lat;
             s.current_lon = initial_lon;
@@ -137,17 +141,16 @@ impl RouteRunner {
             s.elapsed_seconds = 0;
         }
 
-        self.stop_signal.store(false, Ordering::SeqCst);
-
         // Spawn high-precision 1Hz background simulation worker
         let state_clone = Arc::clone(&self.state);
         let stop_clone = Arc::clone(&self.stop_signal);
+        let gen_clone = Arc::clone(&self.generation);
 
         thread::spawn(move || {
-            while !stop_clone.load(Ordering::SeqCst) {
+            while !stop_clone.load(Ordering::SeqCst) && gen_clone.load(Ordering::SeqCst) == my_gen {
                 thread::sleep(Duration::from_millis(1000));
 
-                if stop_clone.load(Ordering::SeqCst) {
+                if stop_clone.load(Ordering::SeqCst) || gen_clone.load(Ordering::SeqCst) != my_gen {
                     break;
                 }
 
@@ -155,6 +158,10 @@ impl RouteRunner {
                     Ok(guard) => guard,
                     Err(_) => break,
                 };
+
+                if gen_clone.load(Ordering::SeqCst) != my_gen {
+                    break;
+                }
 
                 if !s.is_running || s.is_paused || s.waypoints.len() < 2 {
                     continue;
@@ -173,6 +180,7 @@ impl RouteRunner {
                     } else {
                         s.is_running = false;
                         s.segment_progress = 1.0;
+                        s.effective_speed_kmh = 0.0;
                         continue;
                     }
                 }
@@ -195,6 +203,8 @@ impl RouteRunner {
                     base_speed_mps
                 };
 
+                s.effective_speed_kmh = effective_speed_mps * 3.6;
+
                 // Smooth angular heading transition (max 45 deg/sec turn rate)
                 s.current_heading = smooth_bearing(s.current_heading, target_bearing, 45.0, 1.0);
 
@@ -214,7 +224,8 @@ impl RouteRunner {
                     s.current_lon = p2.lon;
                     s.current_alt = p2.alt.unwrap_or(s.current_alt);
                 } else {
-                    let (lat, lon) = interpolate_point(p1.lat, p1.lon, p2.lat, p2.lon, s.segment_progress);
+                    let (lat, lon) =
+                        interpolate_point(p1.lat, p1.lon, p2.lat, p2.lon, s.segment_progress);
                     s.current_lat = lat;
                     s.current_lon = lon;
 
@@ -251,9 +262,11 @@ impl RouteRunner {
 
     pub fn stop(&self) {
         self.stop_signal.store(true, Ordering::SeqCst);
+        self.generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut s) = self.state.write() {
             s.is_running = false;
             s.is_paused = false;
+            s.effective_speed_kmh = 0.0;
         }
     }
 
@@ -261,8 +274,15 @@ impl RouteRunner {
         let s = self.state.read().unwrap();
         let total_segments = s.waypoints.len().saturating_sub(1);
         let progress_percent = if total_segments > 0 {
-            let overall = (s.current_index as f64 + s.segment_progress) / total_segments as f64 * 100.0;
+            let overall =
+                (s.current_index as f64 + s.segment_progress) / total_segments as f64 * 100.0;
             overall.clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+
+        let current_speed = if s.is_running && !s.is_paused {
+            s.effective_speed_kmh
         } else {
             0.0
         };
@@ -277,7 +297,7 @@ impl RouteRunner {
             current_lon: s.current_lon,
             current_alt: s.current_alt,
             current_heading: s.current_heading,
-            current_speed_kmh: s.speed_kmh,
+            current_speed_kmh: current_speed,
             elapsed_seconds: s.elapsed_seconds,
             is_looping: s.is_looping,
             profile: s.profile,

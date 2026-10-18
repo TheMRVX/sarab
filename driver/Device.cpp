@@ -79,9 +79,9 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
         return status;
     }
 
-    // Create periodic timer for GNSS fix injection
+    // Create timer for GNSS fix injection
     WDF_TIMER_CONFIG timerConfig;
-    WDF_TIMER_CONFIG_INIT_PERIODIC(&timerConfig, SarabEvtFixTimer, 1000);
+    WDF_TIMER_CONFIG_INIT(&timerConfig, SarabEvtFixTimer);
     WDF_OBJECT_ATTRIBUTES timerAttributes;
     WDF_OBJECT_ATTRIBUTES_INIT(&timerAttributes);
     timerAttributes.ParentObject = device;
@@ -99,7 +99,12 @@ NTSTATUS SarabDeviceCreate(PWDFDEVICE_INIT DeviceInit)
         return status;
     }
 
-    // Initial load of spoof parameters
+    // Initial load of spoof parameters and drift state
+    deviceContext->Drift.dNorth = 0.0;
+    deviceContext->Drift.dEast = 0.0;
+    deviceContext->Drift.dUp = 0.0;
+    deviceContext->Drift.seed = 0x1337C0DE;
+    deviceContext->Drift.initialized = FALSE;
     LoadSpoofConfigFromRegistry(&deviceContext->Config);
 
     TraceEvents(0, 0, "Sarab GNSS device created successfully");
@@ -142,8 +147,21 @@ VOID SarabEvtFixTimer(WDFTIMER Timer)
         WDFREQUEST request = NULL;
         while (NT_SUCCESS(WdfIoQueueRetrieveNextRequest(deviceContext->FixDataQueue, &request)) && request != NULL) {
             deviceContext->FixSequenceNumber++;
-            CompleteFixRequest(request, deviceContext->ActiveSessionID, deviceContext->SessionType, &deviceContext->Config);
+            CompleteFixRequest(request, deviceContext->ActiveSessionID, deviceContext->SessionType, &deviceContext->Config, &deviceContext->Drift);
+
+            // In SingleShot mode, session terminates after the single fix is delivered
+            if (deviceContext->SessionType == GNSS_FixSession_SingleShot) {
+                deviceContext->SessionActive = FALSE;
+                WdfTimerStop(deviceContext->FixTimer, FALSE);
+                break;
+            }
             request = NULL;
+        }
+
+        // Reschedule next fix in ContinuousTracking mode according to preferred TimeBetweenFixes
+        if (deviceContext->SessionActive && deviceContext->SessionType == GNSS_FixSession_ContinuousTracking) {
+            ULONG interval = (deviceContext->TimeBetweenFixes > 0) ? deviceContext->TimeBetweenFixes : 1000;
+            WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(interval));
         }
     }
 

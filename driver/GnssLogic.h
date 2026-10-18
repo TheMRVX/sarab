@@ -2,11 +2,20 @@
 
 #include "GnssDriverDef.h"
 
+// State for 1Hz Gauss-Markov / Ornstein-Uhlenbeck drift filter
+struct DriftState {
+    double dNorth; // North offset in meters
+    double dEast;  // East offset in meters
+    double dUp;    // Up offset in meters
+    unsigned int seed;
+    BOOL initialized;
+};
+
 struct SpoofConfig {
     double Latitude;
     double Longitude;
     double Altitude;
-    ULONG  Accuracy;
+    double Accuracy;
     BOOL   Enabled;
     BOOL   DriftEnabled;
     double DriftRadiusMeters;
@@ -20,4 +29,4 @@ struct SpoofConfig {
 void LoadSpoofConfigFromRegistry(SpoofConfig* config);
 
 // Fills GNSS_EVENT (wrapping GNSS_FIXDATA) and completes the WDF request
-NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config);
+NTSTATUS CompleteFixRequest(WDFREQUEST Request, ULONG FixSessionID, GNSS_FIXSESSIONTYPE SessionType, const SpoofConfig* config, DriftState* drift);

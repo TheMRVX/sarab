@@ -77,23 +77,45 @@ pub fn check_test_signing_mode() -> (bool, String) {
     (false, "Unknown".to_string())
 }
 
+#[cfg(windows)]
+static BITLOCKER_CACHE: std::sync::RwLock<Option<(std::time::Instant, String)>> =
+    std::sync::RwLock::new(None);
+
 pub fn check_bitlocker_status() -> String {
     #[cfg(windows)]
     {
-        if let Ok(output) = std::process::Command::new("manage-bde")
+        if let Ok(read_guard) = BITLOCKER_CACHE.read() {
+            if let Some((instant, ref status)) = *read_guard {
+                if instant.elapsed() < std::time::Duration::from_secs(60) {
+                    return status.clone();
+                }
+            }
+        }
+
+        let status = if let Ok(output) = std::process::Command::new("manage-bde")
             .args(["-status", "C:"])
             .output()
         {
             let text = String::from_utf8_lossy(&output.stdout).to_uppercase();
             if text.contains("PROTECTION ON") {
-                return "ACTIVE (Protection ON)".to_string();
+                "ACTIVE (Protection ON)".to_string()
             } else if text.contains("PROTECTION OFF") {
-                return "SUSPENDED / OFF".to_string();
+                "SUSPENDED / OFF".to_string()
             } else if text.contains("PERCENTAGE ENCRYPTED: 0") {
-                return "NOT ENCRYPTED".to_string();
+                "NOT ENCRYPTED".to_string()
+            } else {
+                "UNKNOWN / NOT DETECTED".to_string()
             }
+        } else {
+            "UNKNOWN / NOT DETECTED".to_string()
+        };
+
+        if let Ok(mut write_guard) = BITLOCKER_CACHE.write() {
+            *write_guard = Some((std::time::Instant::now(), status.clone()));
         }
+        status
     }
+    #[cfg(not(windows))]
     "UNKNOWN / NOT DETECTED".to_string()
 }
 
@@ -157,30 +179,30 @@ pub fn remove_devices_by_hwid(target_hwid: &str) -> usize {
 
         let mut index = 0;
         while SetupDiEnumDeviceInfo(dev_info, index, &mut dev_data).is_ok() {
-            let mut buf = [0u8; 512];
+            let mut buf = [0u16; 256];
             let mut req_size = 0;
 
             let mut was_removed = false;
+            let byte_slice =
+                std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 2);
             if SetupDiGetDeviceRegistryPropertyW(
                 dev_info,
-                &mut dev_data,
+                &dev_data,
                 SPDRP_HARDWAREID,
                 None,
-                Some(&mut buf),
+                Some(byte_slice),
                 Some(&mut req_size),
             )
             .is_ok()
             {
-                let wide_slice: &[u16] =
-                    std::slice::from_raw_parts(buf.as_ptr() as *const u16, (req_size as usize) / 2);
-                let hwid_str = String::from_utf16_lossy(wide_slice);
+                let u16_len = (req_size as usize / 2).min(buf.len());
+                let hwid_str = String::from_utf16_lossy(&buf[..u16_len]);
                 if hwid_str
                     .to_lowercase()
                     .contains(&target_hwid.to_lowercase())
                 {
                     println!("[+] Removing device: {}", hwid_str.trim_matches('\0'));
-                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&mut dev_data)).is_ok()
-                    {
+                    if SetupDiCallClassInstaller(DIF_REMOVE, dev_info, Some(&dev_data)).is_ok() {
                         removed_count += 1;
                         was_removed = true;
                     }
@@ -308,7 +330,7 @@ pub fn install_driver_device(inf_path: &Path) -> Result<()> {
             ));
         }
 
-        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&mut dev_data));
+        let reg_res = SetupDiCallClassInstaller(DIF_REGISTERDEVICE, dev_info, Some(&dev_data));
         let _ = SetupDiDestroyDeviceInfoList(dev_info);
 
         if reg_res.is_err() {
@@ -370,7 +392,72 @@ pub fn uninstall_driver_device() -> Result<()> {
         .args(["/delete-driver", "SarabGnss.inf", "/uninstall", "/force"])
         .output();
 
+    // Clean up root certificate from system stores to prevent leaving persistent self-signed CAs
+    for store in ["Root", "TrustedPublisher"] {
+        let _ = std::process::Command::new("certutil")
+            .args(["-delstore", store, "Sarab Virtual GNSS Spoofer Root CA"])
+            .output();
+        let _ = std::process::Command::new("certutil")
+            .args(["-delstore", store, "Sarab"])
+            .output();
+    }
+
     Ok(())
+}
+
+#[cfg(windows)]
+pub fn is_driver_installed() -> bool {
+    use windows::core::GUID;
+    use windows::Win32::Devices::DeviceAndDriverInstallation::{
+        SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
+        SetupDiGetDeviceRegistryPropertyW, DIGCF_ALLCLASSES, SPDRP_HARDWAREID, SP_DEVINFO_DATA,
+    };
+
+    unsafe {
+        let Ok(dev_info) = SetupDiGetClassDevsW(None, None, None, DIGCF_ALLCLASSES) else {
+            return false;
+        };
+
+        let mut dev_data = SP_DEVINFO_DATA {
+            cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
+            ClassGuid: GUID::zeroed(),
+            DevInst: 0,
+            Reserved: 0,
+        };
+
+        let mut index = 0;
+        let mut found = false;
+        while SetupDiEnumDeviceInfo(dev_info, index, &mut dev_data).is_ok() {
+            let mut buf = [0u16; 256];
+            let mut req_size = 0;
+            let byte_slice =
+                std::slice::from_raw_parts_mut(buf.as_mut_ptr() as *mut u8, buf.len() * 2);
+            if SetupDiGetDeviceRegistryPropertyW(
+                dev_info,
+                &dev_data,
+                SPDRP_HARDWAREID,
+                None,
+                Some(byte_slice),
+                Some(&mut req_size),
+            )
+            .is_ok()
+            {
+                let u16_len = (req_size as usize / 2).min(buf.len());
+                let hwid_str = String::from_utf16_lossy(&buf[..u16_len]);
+                if hwid_str
+                    .to_lowercase()
+                    .contains(&HARDWARE_ID.to_lowercase())
+                {
+                    found = true;
+                    break;
+                }
+            }
+            index += 1;
+        }
+
+        let _ = SetupDiDestroyDeviceInfoList(dev_info);
+        found
+    }
 }
 
 // Fallbacks for non-Windows platforms
@@ -387,4 +474,9 @@ pub fn install_driver_device(_inf_path: &Path) -> Result<()> {
 #[cfg(not(windows))]
 pub fn uninstall_driver_device() -> Result<()> {
     Ok(())
+}
+
+#[cfg(not(windows))]
+pub fn is_driver_installed() -> bool {
+    false
 }
