@@ -25,13 +25,13 @@ pub enum Commands {
     Disable,
 
     /// Query system state, driver status, and active coordinates
-    Status,
+    Status(StatusArgs),
 
     /// Manage the Sarab Virtual GNSS driver (install / uninstall)
     Driver(DriverArgs),
 
     /// Query live coordinates reported by Windows.Devices.Geolocation
-    Read,
+    Read(ReadArgs),
 
     /// Configure Simple Mode (sets default location in registry without driver)
     Simple(SimpleArgs),
@@ -64,18 +64,32 @@ pub struct GuiArgs {
     pub open: bool,
 }
 
+#[derive(Args, Debug, Default, Clone)]
+pub struct StatusArgs {
+    /// Output system status in structured JSON format
+    #[arg(long)]
+    pub json: bool,
+}
+
+#[derive(Args, Debug, Default, Clone)]
+pub struct ReadArgs {
+    /// Output live coordinates in structured JSON format
+    #[arg(long)]
+    pub json: bool,
+}
+
 #[derive(Args, Debug)]
 pub struct SetArgs {
     /// Latitude in decimal degrees (-90.0 to 90.0)
-    #[arg(short, long)]
+    #[arg(short, long, allow_hyphen_values = true)]
     pub lat: f64,
 
     /// Longitude in decimal degrees (-180.0 to 180.0)
-    #[arg(short = 'o', long)]
+    #[arg(short = 'o', long, allow_hyphen_values = true)]
     pub lon: f64,
 
     /// Altitude in meters above sea level (default: 0.0)
-    #[arg(short, long, default_value_t = 0.0)]
+    #[arg(short, long, default_value_t = 0.0, allow_hyphen_values = true)]
     pub alt: f64,
 
     /// Horizontal accuracy radius in meters (default: 5.0)
@@ -113,11 +127,11 @@ pub enum DriverAction {
 #[derive(Args, Debug)]
 pub struct SimpleArgs {
     /// Latitude in decimal degrees (-90.0 to 90.0)
-    #[arg(short, long)]
+    #[arg(short, long, allow_hyphen_values = true)]
     pub lat: f64,
 
     /// Longitude in decimal degrees (-180.0 to 180.0)
-    #[arg(short, long)]
+    #[arg(short, long, allow_hyphen_values = true)]
     pub lon: f64,
 }
 

@@ -1,3 +1,13 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 TheMRVX. Licensed under MIT OR Apache-2.0.
+//
+// Windows GNSS Driver DDI Definitions:
+// Definitions, structures, and IOCTL control codes in this file are implemented in compliance
+// with Microsoft's public Windows GNSS Driver Device Driver Interface (DDI) specification
+// (<gnssdriver.h> in the Windows Driver Kit / Windows SDK) for seamless binary interoperability
+// with LocationFramework.dll and Windows Location Platform (lfsvc).
+//
+
 #pragma once
 
 #define WIN32_NO_STATUS

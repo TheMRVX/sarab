@@ -387,46 +387,81 @@ pub fn uninstall_driver_device() -> Result<()> {
         );
     }
 
-    // Clean up INF from driver store via pnputil
+    // Find and delete all published oem*.inf packages associated with SarabGnss.inf
+    if let Ok(output) = std::process::Command::new("pnputil")
+        .args(["/enum-drivers"])
+        .output()
+    {
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut current_oem = String::new();
+        for line in stdout.lines() {
+            let trimmed = line.trim();
+            if trimmed.to_lowercase().starts_with("published name") {
+                if let Some(name) = trimmed.split(':').nth(1) {
+                    current_oem = name.trim().to_string();
+                }
+            } else if (trimmed.to_lowercase().contains("sarabgnss.inf")
+                || trimmed.to_lowercase().contains("themrvx"))
+                && !current_oem.is_empty()
+            {
+                let _ = std::process::Command::new("pnputil")
+                    .args(["/delete-driver", &current_oem, "/uninstall", "/force"])
+                    .output();
+                current_oem.clear();
+            }
+        }
+    }
+
+    // Clean up INF from driver store via pnputil fallback
     let _ = std::process::Command::new("pnputil")
         .args(["/delete-driver", "SarabGnss.inf", "/uninstall", "/force"])
         .output();
 
     // Clean up root certificate from system stores to prevent leaving persistent self-signed CAs
     for store in ["Root", "TrustedPublisher"] {
-        let _ = std::process::Command::new("certutil")
-            .args(["-delstore", store, "Sarab Virtual GNSS Spoofer Root CA"])
-            .output();
-        let _ = std::process::Command::new("certutil")
-            .args(["-delstore", store, "Sarab"])
-            .output();
+        for cert_name in [
+            "Sarab Test Signing Certificate",
+            "Sarab Virtual GNSS Spoofer Root CA",
+            "Sarab",
+        ] {
+            let _ = std::process::Command::new("certutil")
+                .args(["-delstore", store, cert_name])
+                .output();
+        }
     }
 
     Ok(())
 }
 
 #[cfg(windows)]
-pub fn is_driver_installed() -> bool {
-    use windows::core::GUID;
+pub fn get_driver_state() -> (bool, bool) {
     use windows::Win32::Devices::DeviceAndDriverInstallation::{
-        SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo, SetupDiGetClassDevsW,
-        SetupDiGetDeviceRegistryPropertyW, DIGCF_ALLCLASSES, SPDRP_HARDWAREID, SP_DEVINFO_DATA,
+        CM_Get_DevNode_Status, SetupDiDestroyDeviceInfoList, SetupDiEnumDeviceInfo,
+        SetupDiGetClassDevsW, SetupDiGetDeviceRegistryPropertyW, CM_DEVNODE_STATUS_FLAGS, CM_PROB,
+        CONFIGRET, DIGCF_PRESENT, SPDRP_HARDWAREID, SP_DEVINFO_DATA,
     };
 
+    const DN_STARTED: u32 = 0x00000008;
+    const DN_HAS_PROBLEM: u32 = 0x00000400;
+
     unsafe {
-        let Ok(dev_info) = SetupDiGetClassDevsW(None, None, None, DIGCF_ALLCLASSES) else {
-            return false;
+        let Ok(dev_info) =
+            SetupDiGetClassDevsW(Some(&SENSOR_CLASS_GUID), None, None, DIGCF_PRESENT)
+        else {
+            return (false, false);
         };
 
         let mut dev_data = SP_DEVINFO_DATA {
             cbSize: std::mem::size_of::<SP_DEVINFO_DATA>() as u32,
-            ClassGuid: GUID::zeroed(),
+            ClassGuid: SENSOR_CLASS_GUID,
             DevInst: 0,
             Reserved: 0,
         };
 
         let mut index = 0;
         let mut found = false;
+        let mut running = false;
+
         while SetupDiEnumDeviceInfo(dev_info, index, &mut dev_data).is_ok() {
             let mut buf = [0u16; 256];
             let mut req_size = 0;
@@ -449,6 +484,16 @@ pub fn is_driver_installed() -> bool {
                     .contains(&HARDWARE_ID.to_lowercase())
                 {
                     found = true;
+                    let mut status = CM_DEVNODE_STATUS_FLAGS(0);
+                    let mut problem = CM_PROB(0);
+                    if CM_Get_DevNode_Status(&mut status, &mut problem, dev_data.DevInst, 0)
+                        == CONFIGRET(0)
+                        && (status.0 & DN_STARTED != 0)
+                        && (status.0 & DN_HAS_PROBLEM == 0)
+                        && problem.0 == 0
+                    {
+                        running = true;
+                    }
                     break;
                 }
             }
@@ -456,11 +501,28 @@ pub fn is_driver_installed() -> bool {
         }
 
         let _ = SetupDiDestroyDeviceInfoList(dev_info);
-        found
+        (found, running)
     }
 }
 
+#[cfg(windows)]
+#[allow(dead_code)]
+pub fn is_driver_installed() -> bool {
+    get_driver_state().0
+}
+
 // Fallbacks for non-Windows platforms
+#[cfg(not(windows))]
+pub fn get_driver_state() -> (bool, bool) {
+    (false, false)
+}
+
+#[cfg(not(windows))]
+#[allow(dead_code)]
+pub fn is_driver_installed() -> bool {
+    false
+}
+
 #[cfg(not(windows))]
 pub fn install_certificate_to_stores(_cer_path: &Path) -> Result<()> {
     Ok(())
@@ -474,9 +536,4 @@ pub fn install_driver_device(_inf_path: &Path) -> Result<()> {
 #[cfg(not(windows))]
 pub fn uninstall_driver_device() -> Result<()> {
     Ok(())
-}
-
-#[cfg(not(windows))]
-pub fn is_driver_installed() -> bool {
-    false
 }

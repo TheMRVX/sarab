@@ -1,10 +1,10 @@
 [package]
 name = "sarab"
-version = "1.0.1"
+version = "1.0.2"
 edition = "2021"
 authors = ["TheMRVX"]
 description = "High-precision GPS location spoofer for Windows 10/11"
-license = "Apache-2.0"
+license = "MIT OR Apache-2.0"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }

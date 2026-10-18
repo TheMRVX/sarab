@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
   Paper,
@@ -10,15 +10,6 @@ import {
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
-import {
-  MapContainer,
-  TileLayer,
-  Marker,
-  Circle,
-  Polyline,
-  useMap,
-  useMapEvents,
-} from 'react-leaflet';
 import L from 'leaflet';
 import { Waypoint } from '../types';
 
@@ -62,30 +53,6 @@ interface MapViewProps {
   waypoints?: Waypoint[];
 }
 
-// Controller component to smoothly pan when coordinates change externally
-const MapRecenter: React.FC<{ lat: number; lon: number }> = ({ lat, lon }) => {
-  const map = useMap();
-  useEffect(() => {
-    map.panTo([lat, lon], { animate: true });
-  }, [lat, lon, map]);
-  return null;
-};
-
-// Map click event listener
-const MapEvents: React.FC<{
-  onCoordinateChange: (lat: number, lon: number) => void;
-}> = ({ onCoordinateChange }) => {
-  useMapEvents({
-    click(e) {
-      onCoordinateChange(
-        parseFloat(e.latlng.lat.toFixed(7)),
-        parseFloat(e.latlng.lng.toFixed(7))
-      );
-    },
-  });
-  return null;
-};
-
 export const MapView: React.FC<MapViewProps> = ({
   latitude,
   longitude,
@@ -97,7 +64,107 @@ export const MapView: React.FC<MapViewProps> = ({
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
 
-  const markerIcon = createCustomIcon('#00e5ff');
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const markerRef = useRef<L.Marker | null>(null);
+  const circleRef = useRef<L.Circle | null>(null);
+  const polylineRef = useRef<L.Polyline | null>(null);
+
+  // Keep a stable ref to callback so map event listeners don't need re-attaching
+  const onCoordinateChangeRef = useRef(onCoordinateChange);
+  useEffect(() => {
+    onCoordinateChangeRef.current = onCoordinateChange;
+  }, [onCoordinateChange]);
+
+  // Initialize pure Leaflet map instance (React.StrictMode safe with cleanup)
+  useEffect(() => {
+    if (!mapContainerRef.current) return;
+
+    const map = L.map(mapContainerRef.current, {
+      center: [latitude, longitude],
+      zoom: 14,
+    });
+    mapRef.current = map;
+
+    // OpenStreetMap dark-style tiles (100% free, BSD/ODbL compliant, no external non-free code)
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution:
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      maxZoom: 19,
+      className: 'dark-tile-layer',
+    }).addTo(map);
+
+    // Accuracy Circle
+    const circle = L.circle([latitude, longitude], {
+      radius: accuracy,
+      color: '#00e5ff',
+      fillColor: '#00e5ff',
+      fillOpacity: 0.15,
+      weight: 1.5,
+    }).addTo(map);
+    circleRef.current = circle;
+
+    // Draggable Target Marker
+    const marker = L.marker([latitude, longitude], {
+      icon: createCustomIcon('#00e5ff'),
+      draggable: true,
+    }).addTo(map);
+    markerRef.current = marker;
+
+    marker.on('dragend', () => {
+      const pos = marker.getLatLng();
+      onCoordinateChangeRef.current(
+        parseFloat(pos.lat.toFixed(7)),
+        parseFloat(pos.lng.toFixed(7))
+      );
+    });
+
+    // Map Click Listener
+    map.on('click', (e: L.LeafletMouseEvent) => {
+      onCoordinateChangeRef.current(
+        parseFloat(e.latlng.lat.toFixed(7)),
+        parseFloat(e.latlng.lng.toFixed(7))
+      );
+    });
+
+    // Route Polyline
+    const polyline = L.polyline([], {
+      color: '#7c4dff',
+      weight: 4,
+      opacity: 0.8,
+      dashArray: '8, 8',
+    }).addTo(map);
+    polylineRef.current = polyline;
+
+    return () => {
+      map.remove();
+      mapRef.current = null;
+      markerRef.current = null;
+      circleRef.current = null;
+      polylineRef.current = null;
+    };
+  }, []); // Run once on mount
+
+  // Synchronize target position & accuracy when props update
+  useEffect(() => {
+    if (!mapRef.current) return;
+
+    if (markerRef.current) {
+      markerRef.current.setLatLng([latitude, longitude]);
+    }
+    if (circleRef.current) {
+      circleRef.current.setLatLng([latitude, longitude]);
+      circleRef.current.setRadius(accuracy);
+    }
+    mapRef.current.panTo([latitude, longitude], { animate: true });
+  }, [latitude, longitude, accuracy]);
+
+  // Synchronize route waypoints polyline
+  useEffect(() => {
+    if (!polylineRef.current) return;
+    const coords: [number, number][] = waypoints.map((w) => [w.lat, w.lon]);
+    polylineRef.current.setLatLngs(coords);
+  }, [waypoints]);
 
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -110,7 +177,9 @@ export const MapView: React.FC<MapViewProps> = ({
         searchQuery
       )}&limit=1`;
       const res = await fetch(url, {
-        headers: { 'User-Agent': `Sarab-GNSS-Suite/${(import.meta as any).env?.PACKAGE_VERSION || '1.0.0'}` },
+        headers: {
+          'User-Agent': `Sarab-GNSS-Suite/1.0.2`,
+        },
       });
       const data = await res.json();
       if (data && data.length > 0) {
@@ -126,8 +195,6 @@ export const MapView: React.FC<MapViewProps> = ({
       setIsSearching(false);
     }
   };
-
-  const polylineCoords = waypoints.map((w) => [w.lat, w.lon] as [number, number]);
 
   return (
     <Paper
@@ -234,65 +301,20 @@ export const MapView: React.FC<MapViewProps> = ({
         </Paper>
       </Box>
 
-      {/* Main Map Container */}
-      <MapContainer
-        center={[latitude, longitude]}
-        zoom={14}
-        style={{ height: '100%', width: '100%', backgroundColor: '#0a0e14' }}
-      >
-        {/* OpenStreetMap tiles (100% free, no API key required) */}
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-          url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
-          maxZoom={19}
-          className="dark-tile-layer"
-        />
-
-        <MapRecenter lat={latitude} lon={longitude} />
-        <MapEvents onCoordinateChange={onCoordinateChange} />
-
-        {/* Accuracy Circle */}
-        <Circle
-          center={[latitude, longitude]}
-          radius={accuracy}
-          pathOptions={{
-            color: '#00e5ff',
-            fillColor: '#00e5ff',
-            fillOpacity: 0.15,
-            weight: 1.5,
-          }}
-        />
-
-        {/* Draggable Target Marker */}
-        <Marker
-          position={[latitude, longitude]}
-          icon={markerIcon}
-          draggable={true}
-          eventHandlers={{
-            dragend(e) {
-              const marker = e.target;
-              const pos = marker.getLatLng();
-              onCoordinateChange(
-                parseFloat(pos.lat.toFixed(7)),
-                parseFloat(pos.lng.toFixed(7))
-              );
-            },
-          }}
-        />
-
-        {/* Route Polyline if Waypoints exist */}
-        {polylineCoords.length > 1 && (
-          <Polyline
-            positions={polylineCoords}
-            pathOptions={{
-              color: '#7c4dff',
-              weight: 4,
-              opacity: 0.8,
-              dashArray: '8, 8',
-            }}
-          />
-        )}
-      </MapContainer>
+      {/* Main Map Container Div */}
+      <Box
+        ref={mapContainerRef}
+        sx={{
+          height: '100%',
+          width: '100%',
+          backgroundColor: '#0a0e14',
+          '& .leaflet-container': {
+            height: '100%',
+            width: '100%',
+            backgroundColor: '#0a0e14',
+          },
+        }}
+      />
     </Paper>
   );
 };

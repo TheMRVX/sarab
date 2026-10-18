@@ -133,13 +133,60 @@ pub fn generate_session_token() -> String {
 }
 
 fn is_allowed_origin(origin: &str) -> bool {
-    let lower = origin.to_lowercase();
-    lower.starts_with("http://localhost")
-        || lower.starts_with("https://localhost")
-        || lower.starts_with("http://127.0.0.1")
-        || lower.starts_with("https://127.0.0.1")
-        || lower.starts_with("http://[::1]")
-        || lower.starts_with("https://[::1]")
+    let lower = origin.trim().to_lowercase();
+    let allowed_prefixes = [
+        "http://localhost",
+        "https://localhost",
+        "http://127.0.0.1",
+        "https://127.0.0.1",
+        "http://[::1]",
+        "https://[::1]",
+    ];
+
+    for prefix in allowed_prefixes {
+        if let Some(rem) = lower.strip_prefix(prefix) {
+            if rem.is_empty() {
+                return true;
+            }
+            if let Some(port_str) = rem.strip_prefix(':') {
+                if !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit()) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn is_allowed_host(host: &str) -> bool {
+    let host = host.trim().to_lowercase();
+    if host.is_empty() {
+        return false;
+    }
+
+    if let Some(rem) = host.strip_prefix("[::1]") {
+        if rem.is_empty() {
+            return true;
+        }
+        if let Some(port_str) = rem.strip_prefix(':') {
+            return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
+        }
+        return false;
+    }
+
+    if host == "localhost" || host == "127.0.0.1" {
+        return true;
+    }
+
+    if let Some(port_str) = host.strip_prefix("localhost:") {
+        return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
+    }
+
+    if let Some(port_str) = host.strip_prefix("127.0.0.1:") {
+        return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
+    }
+
+    false
 }
 
 fn get_header_value(request: &tiny_http::Request, name: &str) -> Option<String> {
@@ -183,7 +230,8 @@ fn get_current_telemetry(
             r_status.current_heading,
         )
     } else {
-        let cfg = crate::config::load_local_config();
+        let cfg = driver_comm::get_driver_parameters()
+            .unwrap_or_else(|_| crate::config::load_local_config());
         (cfg.lat, cfg.lon, cfg.alt, 0.0, 0.0)
     }
 }
@@ -211,22 +259,25 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     };
 
     let session_token = generate_session_token();
-    let token_path = crate::config::get_session_token_path();
-    if let Some(parent) = token_path.parent() {
-        let _ = std::fs::create_dir_all(parent);
+    if let Err(e) = crate::config::save_session_token(&session_token) {
+        eprintln!("[!] Warning: Could not save session token: {}", e);
     }
-    if let Err(e) = std::fs::write(&token_path, &session_token) {
-        eprintln!(
-            "[!] Warning: Could not write session token to {:?}: {}",
-            token_path, e
-        );
+    if let Err(e) = crate::config::save_active_port(port) {
+        eprintln!("[!] Warning: Could not save active port: {}", e);
     }
 
     println!("\n========================================================");
     println!("  Sarab Virtual GNSS Web Control Dashboard");
     println!("  URL: {}", local_url);
     println!("  Listening on: http://{}", addr);
-    println!("  Session Token saved to: {:?}", token_path);
+    println!(
+        "  Session Token saved to: {:?}",
+        crate::config::get_session_token_path()
+    );
+    println!(
+        "  Active Port saved to: {:?}",
+        crate::config::get_active_port_path()
+    );
     println!("  Press Ctrl+C to stop the dashboard server.");
     println!("========================================================\n");
 
@@ -239,6 +290,24 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     nmea_broadcaster.start_udp_broadcast(10110, route_runner.clone());
 
     for mut request in server.incoming_requests() {
+        // Enforce strict Host header validation to prevent DNS Rebinding attacks
+        let host_header = get_header_value(&request, "Host");
+        let is_host_valid = match host_header.as_deref() {
+            Some(h) => is_allowed_host(h),
+            None => false,
+        };
+
+        if !is_host_valid {
+            let forbidden_resp =
+                Response::from_string(error_json("Forbidden: Invalid or Missing Host Header"))
+                    .with_status_code(StatusCode(403))
+                    .with_header(
+                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                    );
+            let _ = request.respond(forbidden_resp);
+            continue;
+        }
+
         let url_path = request.url().split('?').next().unwrap_or("/").to_string();
 
         // Origin validation: block cross-origin requests from arbitrary websites
@@ -391,7 +460,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     let (location_privacy, location_privacy_details) =
                         reader::check_location_privacy_consent();
                     let bitlocker = installer::check_bitlocker_status();
-                    let driver_installed = installer::is_driver_installed();
+                    let (driver_installed, driver_running) = installer::get_driver_state();
 
                     let status_resp = SystemStatusResponse {
                         test_signing,
@@ -400,7 +469,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         location_privacy_details,
                         bitlocker,
                         driver_installed,
-                        driver_running: driver_installed,
+                        driver_running,
                         version: env!("CARGO_PKG_VERSION").to_string(),
                     };
 
@@ -672,21 +741,25 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 }
 
                 (&Method::Get, "/api/nmea/latest") => {
-                    let (lat, lon, alt, speed_kmh, heading_deg) =
-                        get_current_telemetry(&route_runner);
-                    let epoch_secs = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_secs())
-                        .unwrap_or(1700000000);
-                    let (sentences, _) = crate::nmea::generate_nmea_bundle(
-                        lat,
-                        lon,
-                        alt,
-                        speed_kmh,
-                        heading_deg,
-                        epoch_secs,
-                    );
-                    nmea_broadcaster.update_sentences(sentences.clone());
+                    let mut sentences = nmea_broadcaster.get_latest_sentences();
+                    if sentences.is_empty() {
+                        let (lat, lon, alt, speed_kmh, heading_deg) =
+                            get_current_telemetry(&route_runner);
+                        let epoch_secs = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(1700000000);
+                        let (generated, _) = crate::nmea::generate_nmea_bundle(
+                            lat,
+                            lon,
+                            alt,
+                            speed_kmh,
+                            heading_deg,
+                            epoch_secs,
+                        );
+                        nmea_broadcaster.update_sentences(generated.clone());
+                        sentences = generated;
+                    }
 
                     #[derive(Serialize)]
                     struct NmeaResponse {
@@ -1033,7 +1106,36 @@ mod tests {
         assert!(is_allowed_origin("http://localhost:8090"));
         assert!(is_allowed_origin("http://127.0.0.1:8090"));
         assert!(is_allowed_origin("http://[::1]:8090"));
+        assert!(is_allowed_origin("http://localhost"));
+        assert!(is_allowed_origin("http://127.0.0.1"));
+        assert!(is_allowed_origin("http://[::1]"));
+        assert!(is_allowed_origin("https://localhost:8090"));
+        assert!(is_allowed_origin("https://127.0.0.1:8090"));
+        assert!(is_allowed_origin("https://[::1]:8090"));
+        // Negative test cases: malicious subdomains/suffixes must be rejected
+        assert!(!is_allowed_origin("http://localhost.evil.com"));
+        assert!(!is_allowed_origin("http://127.0.0.1.evil.com"));
+        assert!(!is_allowed_origin("http://[::1].evil.com"));
         assert!(!is_allowed_origin("http://evil.com"));
         assert!(!is_allowed_origin("http://attacker.local"));
+        assert!(!is_allowed_origin("http://localhost:badport"));
+    }
+
+    #[test]
+    fn test_allowed_host_validation() {
+        assert!(is_allowed_host("localhost"));
+        assert!(is_allowed_host("localhost:8090"));
+        assert!(is_allowed_host("127.0.0.1"));
+        assert!(is_allowed_host("127.0.0.1:8090"));
+        assert!(is_allowed_host("[::1]"));
+        assert!(is_allowed_host("[::1]:8090"));
+        // Negative test cases: DNS rebinding and malicious hosts must be rejected
+        assert!(!is_allowed_host("[::1].evil.com"));
+        assert!(!is_allowed_host("localhost.evil.com"));
+        assert!(!is_allowed_host("127.0.0.1.evil.com"));
+        assert!(!is_allowed_host("evil.com"));
+        assert!(!is_allowed_host("attacker.local"));
+        assert!(!is_allowed_host("localhost:badport"));
+        assert!(!is_allowed_host(""));
     }
 }

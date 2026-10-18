@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
+// Copyright (c) 2026 TheMRVX. Licensed under MIT OR Apache-2.0.
+
 #include "Device.h"
 #include "Queue.h"
 #include "Trace.h"
@@ -158,8 +161,8 @@ VOID SarabEvtFixTimer(WDFTIMER Timer)
             request = NULL;
         }
 
-        // Reschedule next fix in ContinuousTracking mode according to preferred TimeBetweenFixes
-        if (deviceContext->SessionActive && deviceContext->SessionType == GNSS_FixSession_ContinuousTracking) {
+        // Reschedule next fix while session remains active
+        if (deviceContext->SessionActive) {
             ULONG interval = (deviceContext->TimeBetweenFixes > 0) ? deviceContext->TimeBetweenFixes : 1000;
             WdfTimerStart(deviceContext->FixTimer, WDF_REL_TIMEOUT_IN_MS(interval));
         }
