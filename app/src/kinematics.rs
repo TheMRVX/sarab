@@ -38,7 +38,12 @@ pub fn interpolate_point(lat1: f64, lon1: f64, lat2: f64, lon2: f64, fraction: f
 }
 
 /// Smoothly transitions heading towards target with a maximum angular rate limit.
-pub fn smooth_bearing(current: f64, target: f64, max_turn_rate_deg_per_sec: f64, dt_sec: f64) -> f64 {
+pub fn smooth_bearing(
+    current: f64,
+    target: f64,
+    max_turn_rate_deg_per_sec: f64,
+    dt_sec: f64,
+) -> f64 {
     let mut diff = (target - current + 180.0) % 360.0 - 180.0;
     if diff < -180.0 {
         diff += 360.0;
@@ -51,7 +56,11 @@ pub fn smooth_bearing(current: f64, target: f64, max_turn_rate_deg_per_sec: f64,
 }
 
 /// Computes realistic cornering speed (in m/s) based on vehicle deflection angle between segments.
-pub fn cornering_speed_mps(base_speed_mps: f64, incoming_bearing: f64, outgoing_bearing: f64) -> f64 {
+pub fn cornering_speed_mps(
+    base_speed_mps: f64,
+    incoming_bearing: f64,
+    outgoing_bearing: f64,
+) -> f64 {
     let mut diff = (outgoing_bearing - incoming_bearing).abs() % 360.0;
     if diff > 180.0 {
         diff = 360.0 - diff;
@@ -68,16 +77,25 @@ pub fn cornering_speed_mps(base_speed_mps: f64, incoming_bearing: f64, outgoing_
 }
 
 /// Calculates destination point given starting point, distance (meters), and bearing (degrees).
-pub fn destination_point(lat: f64, lon: f64, distance_meters: f64, bearing_degrees: f64) -> (f64, f64) {
+pub fn destination_point(
+    lat: f64,
+    lon: f64,
+    distance_meters: f64,
+    bearing_degrees: f64,
+) -> (f64, f64) {
     let delta = distance_meters / EARTH_RADIUS_METERS;
     let theta = bearing_degrees.to_radians();
     let phi1 = lat.to_radians();
     let lambda1 = lon.to_radians();
 
     let phi2 = (phi1.sin() * delta.cos() + phi1.cos() * delta.sin() * theta.cos()).asin();
-    let lambda2 = lambda1 + (theta.sin() * delta.sin() * phi1.cos()).atan2(delta.cos() - phi1.sin() * phi2.sin());
+    let lambda2 = lambda1
+        + (theta.sin() * delta.sin() * phi1.cos()).atan2(delta.cos() - phi1.sin() * phi2.sin());
 
-    (phi2.to_degrees(), (lambda2.to_degrees() + 540.0) % 360.0 - 180.0)
+    (
+        phi2.to_degrees(),
+        (lambda2.to_degrees() + 540.0) % 360.0 - 180.0,
+    )
 }
 
 #[cfg(test)]
@@ -124,7 +142,7 @@ mod tests {
     #[test]
     fn test_cornering_speed() {
         let base_speed = 20.0; // 72 km/h
-        // Straight line (diff 0)
+                               // Straight line (diff 0)
         assert_eq!(cornering_speed_mps(base_speed, 90.0, 90.0), 20.0);
 
         // Sharp 90 degree turn -> should slow down

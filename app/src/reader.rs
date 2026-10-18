@@ -99,7 +99,9 @@ pub struct LiveLocationReport {
 pub fn query_live_location() -> Result<LiveLocationReport> {
     use std::thread;
     use std::time::Duration;
-    use windows::Devices::Geolocation::{Geolocator, PositionAccuracy, PositionSource, PositionStatus};
+    use windows::Devices::Geolocation::{
+        Geolocator, PositionAccuracy, PositionSource, PositionStatus,
+    };
 
     // 1. Check Windows Privacy Consent first
     let (privacy_ok, privacy_reason) = check_location_privacy_consent();
@@ -253,6 +255,9 @@ pub fn read_windows_location() -> Result<()> {
         alt: report.altitude,
         acc: report.accuracy,
     };
-    println!("[*] Simulated Location:\n{} (Source: {})", summary, report.source);
+    println!(
+        "[*] Simulated Location:\n{} (Source: {})",
+        summary, report.source
+    );
     Ok(())
 }

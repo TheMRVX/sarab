@@ -82,7 +82,10 @@ pub fn set_rtk_shield_enabled(enabled: bool) -> Result<()> {
             None,
         );
         if status.is_err() {
-            return Err(anyhow::anyhow!("Failed to open registry for RTK shield: {:?}", status));
+            return Err(anyhow::anyhow!(
+                "Failed to open registry for RTK shield: {:?}",
+                status
+            ));
         }
 
         let name = HSTRING::from("RtkShield");
@@ -93,7 +96,10 @@ pub fn set_rtk_shield_enabled(enabled: bool) -> Result<()> {
         let _ = RegCloseKey(hkey);
 
         if res.is_err() {
-            return Err(anyhow::anyhow!("Failed to write RtkShield registry value: {:?}", res));
+            return Err(anyhow::anyhow!(
+                "Failed to write RtkShield registry value: {:?}",
+                res
+            ));
         }
 
         Ok(())

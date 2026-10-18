@@ -76,10 +76,8 @@ pub fn parse_gpx(xml_content: &str) -> Result<Track> {
                             in_time_tag = true;
                         }
                     }
-                    b"name" => {
-                        if !in_point && track_name.is_none() {
-                            in_name_tag = true;
-                        }
+                    b"name" if !in_point && track_name.is_none() => {
+                        in_name_tag = true;
                     }
                     _ => {}
                 }
@@ -114,8 +112,43 @@ pub fn parse_gpx(xml_content: &str) -> Result<Track> {
                     _ => {}
                 }
             }
+            Ok(Event::Empty(ref e)) => {
+                let name = e.name();
+                match name.as_ref() {
+                    b"trkpt" | b"wpt" | b"rtept" => {
+                        let mut lat = None;
+                        let mut lon = None;
+                        for attr in e.attributes().flatten() {
+                            if attr.key.as_ref() == b"lat" {
+                                if let Ok(val) = std::str::from_utf8(&attr.value) {
+                                    lat = val.parse::<f64>().ok();
+                                }
+                            } else if attr.key.as_ref() == b"lon" {
+                                if let Ok(val) = std::str::from_utf8(&attr.value) {
+                                    lon = val.parse::<f64>().ok();
+                                }
+                            }
+                        }
+                        if let (Some(lat_val), Some(lon_val)) = (lat, lon) {
+                            waypoints.push(Waypoint {
+                                lat: lat_val,
+                                lon: lon_val,
+                                alt: None,
+                                time: None,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+            }
             Ok(Event::Eof) => break,
-            Err(e) => return Err(anyhow!("GPX parse error at position {}: {:?}", reader.buffer_position(), e)),
+            Err(e) => {
+                return Err(anyhow!(
+                    "GPX parse error at position {}: {:?}",
+                    reader.buffer_position(),
+                    e
+                ))
+            }
             _ => {}
         }
         buf.clear();
@@ -140,10 +173,20 @@ pub fn parse_gpx(xml_content: &str) -> Result<Track> {
     })
 }
 
+fn xml_escape(input: &str) -> String {
+    input
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 /// Serializes waypoints to standard GPX 1.1 format.
 #[allow(dead_code)]
 pub fn export_to_gpx(track: &Track) -> String {
-    let name = track.name.as_deref().unwrap_or("Sarab Virtual Route");
+    let raw_name = track.name.as_deref().unwrap_or("Sarab Virtual Route");
+    let name = xml_escape(raw_name);
     let mut gpx = String::new();
     gpx.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     gpx.push_str("<gpx version=\"1.1\" creator=\"Sarab Virtual GNSS Spoofer\"\n");
@@ -151,12 +194,15 @@ pub fn export_to_gpx(track: &Track) -> String {
     gpx.push_str(&format!("  <trk><name>{}</name><trkseg>\n", name));
 
     for wp in &track.waypoints {
-        gpx.push_str(&format!("    <trkpt lat=\"{:.7}\" lon=\"{:.7}\">\n", wp.lat, wp.lon));
+        gpx.push_str(&format!(
+            "    <trkpt lat=\"{:.7}\" lon=\"{:.7}\">\n",
+            wp.lat, wp.lon
+        ));
         if let Some(alt) = wp.alt {
             gpx.push_str(&format!("      <ele>{:.2}</ele>\n", alt));
         }
         if let Some(ref time) = wp.time {
-            gpx.push_str(&format!("      <time>{}</time>\n", time));
+            gpx.push_str(&format!("      <time>{}</time>\n", xml_escape(time)));
         }
         gpx.push_str("    </trkpt>\n");
     }
@@ -193,7 +239,10 @@ mod tests {
         assert_eq!(track.waypoints.len(), 2);
         assert!((track.waypoints[0].lat - 35.6997).abs() < 1e-6);
         assert_eq!(track.waypoints[0].alt, Some(1200.5));
-        assert_eq!(track.waypoints[0].time.as_deref(), Some("2026-10-12T07:00:00Z"));
+        assert_eq!(
+            track.waypoints[0].time.as_deref(),
+            Some("2026-10-12T07:00:00Z")
+        );
         assert!(track.total_distance_meters > 50.0);
     }
 
@@ -202,8 +251,18 @@ mod tests {
         let track = Track {
             name: Some("Test Route".to_string()),
             waypoints: vec![
-                Waypoint { lat: 40.7580, lon: -73.9855, alt: Some(10.0), time: None },
-                Waypoint { lat: 40.7590, lon: -73.9845, alt: Some(12.0), time: None },
+                Waypoint {
+                    lat: 40.7580,
+                    lon: -73.9855,
+                    alt: Some(10.0),
+                    time: None,
+                },
+                Waypoint {
+                    lat: 40.7590,
+                    lon: -73.9845,
+                    alt: Some(12.0),
+                    time: None,
+                },
             ],
             total_distance_meters: 150.0,
         };
@@ -211,5 +270,27 @@ mod tests {
         let xml = export_to_gpx(&track);
         assert!(xml.contains("<trkpt lat=\"40.7580000\" lon=\"-73.9855000\">"));
         assert!(xml.contains("<ele>10.00</ele>"));
+    }
+
+    #[test]
+    fn test_parse_gpx_self_closing_tags() {
+        let sample_self_closing = r#"<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="RoutingEngine">
+  <trk>
+    <name>Route &amp; Track &lt;1&gt;</name>
+    <trkseg>
+      <trkpt lat="35.6997000" lon="51.3380000" />
+      <trkpt lat="35.7005000" lon="51.3392000" />
+    </trkseg>
+  </trk>
+</gpx>"#;
+
+        let track = parse_gpx(sample_self_closing).expect("Should parse self-closing trkpt tags");
+        assert_eq!(track.waypoints.len(), 2);
+        assert!((track.waypoints[0].lat - 35.6997).abs() < 1e-6);
+        assert!((track.waypoints[1].lat - 35.7005).abs() < 1e-6);
+
+        let exported = export_to_gpx(&track);
+        assert!(exported.contains("Route &amp; Track &lt;1&gt;"));
     }
 }

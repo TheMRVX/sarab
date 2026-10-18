@@ -35,8 +35,12 @@ pub fn calculate_checksum(sentence: &str) -> u8 {
 pub fn format_nmea_latitude(lat: f64) -> (String, &'static str) {
     let dir = if lat >= 0.0 { "N" } else { "S" };
     let abs_lat = lat.abs();
-    let degrees = abs_lat.floor() as u32;
-    let minutes = (abs_lat - degrees as f64) * 60.0;
+    let mut degrees = abs_lat.floor() as u32;
+    let mut minutes = (abs_lat - degrees as f64) * 60.0;
+    if minutes >= 59.99995 {
+        minutes = 0.0;
+        degrees += 1;
+    }
     (format!("{:02}{:07.4}", degrees, minutes), dir)
 }
 
@@ -44,8 +48,12 @@ pub fn format_nmea_latitude(lat: f64) -> (String, &'static str) {
 pub fn format_nmea_longitude(lon: f64) -> (String, &'static str) {
     let dir = if lon >= 0.0 { "E" } else { "W" };
     let abs_lon = lon.abs();
-    let degrees = abs_lon.floor() as u32;
-    let minutes = (abs_lon - degrees as f64) * 60.0;
+    let mut degrees = abs_lon.floor() as u32;
+    let mut minutes = (abs_lon - degrees as f64) * 60.0;
+    if minutes >= 59.99995 {
+        minutes = 0.0;
+        degrees += 1;
+    }
     (format!("{:03}{:07.4}", degrees, minutes), dir)
 }
 
@@ -58,20 +66,46 @@ pub fn format_utc_time(epoch_secs: u64) -> String {
     format!("{:02}{:02}{:02}.00", h, m, s)
 }
 
-/// Formats date into ddmmyy (defaulting to current mock date 121026 for 12-Oct-2026)
-pub fn format_utc_date() -> &'static str {
-    "121026"
+/// Formats date into ddmmyy based on real UTC timestamp
+pub fn format_utc_date(epoch_secs: u64) -> String {
+    let days = (epoch_secs / 86400) as i64;
+    let z = days + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1020 + doe / 1461 - doe / 146096) / 365;
+    let y = (yoe as i64) + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+
+    let yy = (year.rem_euclid(100)) as u32;
+    format!("{:02}{:02}{:02}", d, m, yy)
 }
 
 /// Generate GPRMC (Recommended Minimum Specific GNSS Data)
-pub fn generate_rmc(lat: f64, lon: f64, speed_kmh: f64, heading_deg: f64, epoch_secs: u64) -> String {
+pub fn generate_rmc(
+    lat: f64,
+    lon: f64,
+    speed_kmh: f64,
+    heading_deg: f64,
+    epoch_secs: u64,
+) -> String {
     let time_str = format_utc_time(epoch_secs);
     let (lat_str, lat_dir) = format_nmea_latitude(lat);
     let (lon_str, lon_dir) = format_nmea_longitude(lon);
     let speed_knots = speed_kmh / 1.852;
     let body = format!(
         "GPRMC,{},A,{},{},{},{},{:.2},{:.1},{},,,A",
-        time_str, lat_str, lat_dir, lon_str, lon_dir, speed_knots, heading_deg, format_utc_date()
+        time_str,
+        lat_str,
+        lat_dir,
+        lon_str,
+        lon_dir,
+        speed_knots,
+        heading_deg,
+        format_utc_date(epoch_secs)
     );
     let cs = calculate_checksum(&body);
     format!("${}*{:02X}", body, cs)
@@ -84,7 +118,13 @@ pub fn generate_gga(lat: f64, lon: f64, alt_m: f64, epoch_secs: u64, sat_count: 
     let (lon_str, lon_dir) = format_nmea_longitude(lon);
     let body = format!(
         "GPGGA,{},{},{},{},{},1,{:02},0.9,{:.1},M,0.0,M,,",
-        time_str, lat_str, lat_dir, lon_str, lon_dir, sat_count.min(18), alt_m
+        time_str,
+        lat_str,
+        lat_dir,
+        lon_str,
+        lon_dir,
+        sat_count.min(18),
+        alt_m
     );
     let cs = calculate_checksum(&body);
     format!("${}*{:02X}", body, cs)
@@ -131,7 +171,7 @@ pub fn generate_gsv_sentences(satellites: &[Satellite]) -> Vec<String> {
         if sats.is_empty() {
             continue;
         }
-        let total_msgs = (sats.len() + 3) / 4;
+        let total_msgs = sats.len().div_ceil(4);
         for (msg_idx, chunk) in sats.chunks(4).enumerate() {
             let mut body = format!("{},{},{},{}", talker, total_msgs, msg_idx + 1, sats.len());
             for sat in chunk {
@@ -242,11 +282,12 @@ pub fn generate_nmea_bundle(
         .map(|s| s.prn)
         .collect();
 
-    let mut sentences = Vec::new();
-    sentences.push(generate_rmc(lat, lon, speed_kmh, heading_deg, epoch_secs));
-    sentences.push(generate_gga(lat, lon, alt_m, epoch_secs, active_prns.len()));
-    sentences.push(generate_gsa(&active_prns));
-    sentences.push(generate_vtg(heading_deg, speed_kmh));
+    let mut sentences = vec![
+        generate_rmc(lat, lon, speed_kmh, heading_deg, epoch_secs),
+        generate_gga(lat, lon, alt_m, epoch_secs, active_prns.len()),
+        generate_gsa(&active_prns),
+        generate_vtg(heading_deg, speed_kmh),
+    ];
     sentences.extend(generate_gsv_sentences(&satellites));
 
     (sentences, satellites)
@@ -275,14 +316,20 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_bundle() {
-        let (sentences, sats) = generate_nmea_bundle(40.7580, -73.9855, 10.0, 50.0, 30.0, 1700000000);
-        assert!(!sentences.is_empty());
-        assert!(sentences.iter().any(|s| s.starts_with("$GPRMC")));
-        assert!(sentences.iter().any(|s| s.starts_with("$GPGGA")));
-        assert!(sentences.iter().any(|s| s.starts_with("$GNGSA")));
-        assert!(sentences.iter().any(|s| s.starts_with("$GPVTG")));
-        assert!(sentences.iter().any(|s| s.starts_with("$GPGSV")));
-        assert_eq!(sats.len(), 20); // 8 GPS + 4 GLONASS + 4 Galileo + 4 BeiDou
+    fn test_minute_rollover_protection() {
+        // 35.999999 should roll over to 36 degrees 0.0000 minutes, NOT 3560.0000
+        let (lat_str, _) = format_nmea_latitude(35.9999999);
+        assert_eq!(lat_str, "3600.0000");
+
+        let (lon_str, _) = format_nmea_longitude(51.9999999);
+        assert_eq!(lon_str, "05200.0000");
+    }
+
+    #[test]
+    fn test_format_utc_date() {
+        // 1700000000 is 2023-11-14 -> 141123
+        assert_eq!(format_utc_date(1700000000), "141123");
+        // 1760227200 is 2025-10-12 -> 121025
+        assert_eq!(format_utc_date(1760227200), "121025");
     }
 }

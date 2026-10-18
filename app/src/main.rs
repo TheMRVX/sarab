@@ -1,5 +1,6 @@
 mod cli;
 mod config;
+pub mod dead_reckoning;
 mod driver_comm;
 mod gpx;
 mod installer;
@@ -8,11 +9,10 @@ pub mod nmea;
 pub mod nmea_broadcaster;
 mod reader;
 mod route_runner;
+pub mod service;
 mod simple;
 mod web;
 pub mod wifi_shield;
-pub mod service;
-pub mod dead_reckoning;
 
 use anyhow::Result;
 use clap::Parser;
@@ -102,7 +102,10 @@ fn main() -> Result<()> {
             println!(
                 "Natural Drift:     {}",
                 if current_config.drift_enabled {
-                    format!("ENABLED (±{:.1}m Gauss-Markov OU)", current_config.drift_radius)
+                    format!(
+                        "ENABLED (±{:.1}m Gauss-Markov OU)",
+                        current_config.drift_radius
+                    )
                 } else {
                     "DISABLED".to_string()
                 }
@@ -171,8 +174,9 @@ fn main() -> Result<()> {
 
         Commands::Route(args) => match args.action {
             cli::RouteAction::Play(play_args) => {
-                let xml = std::fs::read_to_string(&play_args.file)
-                    .map_err(|e| anyhow::anyhow!("Failed to read GPX file '{}': {}", play_args.file, e))?;
+                let xml = std::fs::read_to_string(&play_args.file).map_err(|e| {
+                    anyhow::anyhow!("Failed to read GPX file '{}': {}", play_args.file, e)
+                })?;
                 let track = gpx::parse_gpx(&xml)?;
                 println!(
                     "[+] Successfully loaded GPX track: '{}' with {} waypoints ({:.2} km)",
@@ -211,17 +215,79 @@ fn main() -> Result<()> {
                 println!("\n[+] Route simulation completed.");
             }
             cli::RouteAction::Status => {
-                let cfg = driver_comm::get_driver_parameters()?;
-                println!("=== Current Driver Telemetry ===");
-                println!("Latitude:  {:.7}°", cfg.lat);
-                println!("Longitude: {:.7}°", cfg.lon);
-                println!("Altitude:  {:.2} m", cfg.alt);
-                println!("Enabled:   {}", cfg.enabled);
+                let token = config::get_session_token_path();
+                let token_str = std::fs::read_to_string(token)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+
+                let client_res = ureq::get("http://127.0.0.1:8090/api/route/status")
+                    .set("X-Sarab-Token", &token_str)
+                    .timeout(std::time::Duration::from_secs(2))
+                    .call();
+
+                match client_res {
+                    Ok(resp) => {
+                        if let Ok(st) = resp.into_json::<crate::route_runner::RouteStatus>() {
+                            println!("\n================ Route Simulation Status ================");
+                            println!(
+                                "Simulation Active: {}",
+                                if st.is_running { "YES" } else { "NO" }
+                            );
+                            println!(
+                                "Paused:            {}",
+                                if st.is_paused { "YES" } else { "NO" }
+                            );
+                            if st.is_running {
+                                println!("Progress:          {:.1}%", st.progress_percent);
+                                println!(
+                                    "Current Position:  {:.7}°, {:.7}° (alt: {:.1} m)",
+                                    st.current_lat, st.current_lon, st.current_alt
+                                );
+                                println!("Current Speed:     {:.1} km/h", st.current_speed_kmh);
+                                println!("Current Heading:   {:.1}°", st.current_heading);
+                                println!(
+                                    "Waypoints:         {}/{}",
+                                    st.current_index + 1,
+                                    st.total_waypoints
+                                );
+                            }
+                            println!("=========================================================\n");
+                        }
+                    }
+                    Err(_) => {
+                        println!("[-] Sarab service/daemon is not reachable on port 8090.");
+                        let cfg = driver_comm::get_driver_parameters().unwrap_or_default();
+                        println!("=== Current Driver Static Coordinates ===");
+                        println!("Latitude:  {:.7}°", cfg.lat);
+                        println!("Longitude: {:.7}°", cfg.lon);
+                        println!("Altitude:  {:.2} m", cfg.alt);
+                        println!("Enabled:   {}", cfg.enabled);
+                    }
+                }
             }
             cli::RouteAction::Stop => {
-                let runner = route_runner::RouteRunner::new();
-                runner.stop();
-                println!("[+] Route simulation stopped.");
+                let token = config::get_session_token_path();
+                let token_str = std::fs::read_to_string(token)
+                    .unwrap_or_default()
+                    .trim()
+                    .to_string();
+
+                let client_res = ureq::post("http://127.0.0.1:8090/api/route/stop")
+                    .set("X-Sarab-Token", &token_str)
+                    .timeout(std::time::Duration::from_secs(2))
+                    .call();
+
+                match client_res {
+                    Ok(_) => {
+                        println!(
+                            "[+] Route simulation stopped successfully in background service."
+                        );
+                    }
+                    Err(e) => {
+                        println!("[-] Failed to stop route in daemon (Is Sarab service running on port 8090?): {}", e);
+                    }
+                }
             }
         },
 
