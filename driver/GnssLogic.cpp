@@ -211,12 +211,11 @@ static void CalculateDriftedPosition(const SpoofConfig* config, DriftState* drif
     *outVdop = *outHdop * 1.3f;
 }
 
-static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofConfig* config, float hdop, float vdop)
+static bool PopulateSpecialEnvironmentAccuracy(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofConfig* config, float hdop, float vdop)
 {
-    pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
-    pAccData->Version = GNSS_DRIVER_VERSION_1;
-
-    if (config->EnvironmentMode == 3) {
+    switch (config->EnvironmentMode)
+    {
+    case 3:
         // Underground parking mode: complete satellite obstruction, zero signal confidence
         pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 50.0) ? config->Accuracy : 50.0);
         pAccData->AltitudeAccuracy = pAccData->HorizontalAccuracy * 2;
@@ -228,7 +227,9 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->SpeedConfidence = 20;
         pAccData->HorizontalDilutionOfPrecision = 25.0f;
         pAccData->VerticalDilutionOfPrecision = 35.0f;
-    } else if (config->EnvironmentMode == 2) {
+        return true;
+
+    case 2:
         // Tunnel / Dead Reckoning mode: complete loss of line-of-sight satellite signals
         pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 20.0) ? config->Accuracy : 25.0);
         pAccData->AltitudeAccuracy = pAccData->HorizontalAccuracy * 2;
@@ -240,7 +241,9 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->SpeedConfidence = 70;
         pAccData->HorizontalDilutionOfPrecision = 12.0f;
         pAccData->VerticalDilutionOfPrecision = 18.0f;
-    } else if (config->EnvironmentMode == 1) {
+        return true;
+
+    case 1:
         // Urban Canyon multipath mode: building reflections and higher HDOP
         pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy > 10.0) ? config->Accuracy : 12.0);
         pAccData->AltitudeAccuracy = (ULONG)(pAccData->HorizontalAccuracy * 1.5f);
@@ -252,29 +255,47 @@ static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofCon
         pAccData->SpeedConfidence = 85;
         pAccData->HorizontalDilutionOfPrecision = (hdop < 2.5f) ? 2.5f : hdop;
         pAccData->VerticalDilutionOfPrecision = (vdop < 3.2f) ? 3.2f : vdop;
-    } else if (config->RtkShieldEnabled) {
-        // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
-        pAccData->HorizontalAccuracy = 1;
-        pAccData->AltitudeAccuracy = 1;
-        pAccData->HeadingAccuracy = 2;
-        pAccData->SpeedAccuracy = 1;
-        pAccData->HorizontalConfidence = 99;
-        pAccData->AltitudeConfidence = 99;
-        pAccData->HeadingConfidence = 99;
-        pAccData->SpeedConfidence = 99;
-        pAccData->HorizontalDilutionOfPrecision = (hdop < 0.6f) ? hdop : 0.6f;
-        pAccData->VerticalDilutionOfPrecision = (vdop < 0.8f) ? vdop : 0.8f;
-    } else {
-        pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy < 1.0) ? 1.0 : config->Accuracy);
-        pAccData->AltitudeAccuracy = (ULONG)((config->Accuracy * 1.5f < 1.0f) ? 1.0f : (config->Accuracy * 1.5f));
-        pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
-        pAccData->SpeedAccuracy = 1;
-        pAccData->HorizontalConfidence = 95;
-        pAccData->AltitudeConfidence = 95;
-        pAccData->HeadingConfidence = 95;
-        pAccData->SpeedConfidence = 95;
-        pAccData->HorizontalDilutionOfPrecision = hdop;
-        pAccData->VerticalDilutionOfPrecision = vdop;
+        return true;
+
+    default:
+        return false;
+    }
+}
+
+static void PopulateAccuracyData(PGNSS_FIXDATA_ACCURACY pAccData, const SpoofConfig* config, float hdop, float vdop)
+{
+    pAccData->Size = sizeof(GNSS_FIXDATA_ACCURACY);
+    pAccData->Version = GNSS_DRIVER_VERSION_1;
+
+    if (!PopulateSpecialEnvironmentAccuracy(pAccData, config, hdop, vdop))
+    {
+        if (config->RtkShieldEnabled)
+        {
+            // High-precision RTK Carrier-Phase fix simulation to supersede Wi-Fi BSSID triangulation
+            pAccData->HorizontalAccuracy = 1;
+            pAccData->AltitudeAccuracy = 1;
+            pAccData->HeadingAccuracy = 2;
+            pAccData->SpeedAccuracy = 1;
+            pAccData->HorizontalConfidence = 99;
+            pAccData->AltitudeConfidence = 99;
+            pAccData->HeadingConfidence = 99;
+            pAccData->SpeedConfidence = 99;
+            pAccData->HorizontalDilutionOfPrecision = (hdop < 0.6f) ? hdop : 0.6f;
+            pAccData->VerticalDilutionOfPrecision = (vdop < 0.8f) ? vdop : 0.8f;
+        }
+        else
+        {
+            pAccData->HorizontalAccuracy = (ULONG)((config->Accuracy < 1.0) ? 1.0 : config->Accuracy);
+            pAccData->AltitudeAccuracy = (ULONG)((config->Accuracy * 1.5f < 1.0f) ? 1.0f : (config->Accuracy * 1.5f));
+            pAccData->HeadingAccuracy = (config->Speed > 0.5) ? 5 : 20;
+            pAccData->SpeedAccuracy = 1;
+            pAccData->HorizontalConfidence = 95;
+            pAccData->AltitudeConfidence = 95;
+            pAccData->HeadingConfidence = 95;
+            pAccData->SpeedConfidence = 95;
+            pAccData->HorizontalDilutionOfPrecision = hdop;
+            pAccData->VerticalDilutionOfPrecision = vdop;
+        }
     }
 
     pAccData->PositionDilutionOfPrecision = (float)sqrt(
