@@ -271,7 +271,10 @@ impl RouteRunner {
     }
 
     pub fn get_status(&self) -> RouteStatus {
-        let s = self.state.read().unwrap();
+        let s = self
+            .state
+            .read()
+            .expect("RouteRunner state read lock poisoned");
         let total_segments = s.waypoints.len().saturating_sub(1);
         let progress_percent = if total_segments > 0 {
             let overall =

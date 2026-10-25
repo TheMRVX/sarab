@@ -302,7 +302,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 Response::from_string(error_json("Forbidden: Invalid or Missing Host Header"))
                     .with_status_code(StatusCode(403))
                     .with_header(
-                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                            .expect("Static JSON Content-Type header is valid"),
                     );
             let _ = request.respond(forbidden_resp);
             continue;
@@ -316,7 +317,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 let forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
                     .with_status_code(StatusCode(403))
                     .with_header(
-                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap(),
+                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                            .expect("Static JSON Content-Type header is valid"),
                     );
                 let _ = request.respond(forbidden_resp);
                 continue;
@@ -331,7 +333,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             &b"Access-Control-Allow-Origin"[..],
             origin_header_val.as_bytes(),
         )
-        .unwrap();
+        .expect("CORS Allow-Origin header is valid");
 
         // Handle CORS preflight
         if request.method() == &Method::Options {
@@ -339,12 +341,12 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 &b"Access-Control-Allow-Methods"[..],
                 &b"GET, POST, OPTIONS"[..],
             )
-            .unwrap();
+            .expect("CORS Allow-Methods header is valid");
             let cors_headers = Header::from_bytes(
                 &b"Access-Control-Allow-Headers"[..],
                 &b"Content-Type, Authorization, X-Sarab-Token"[..],
             )
-            .unwrap();
+            .expect("CORS Allow-Headers header is valid");
             let response = Response::empty(StatusCode(204))
                 .with_header(cors_header.clone())
                 .with_header(cors_methods)
@@ -355,8 +357,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
         // REST API Routes
         if url_path.starts_with("/api/") {
-            let json_header =
-                Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..]).unwrap();
+            let json_header = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                .expect("Static JSON Content-Type header is valid");
 
             // Validate session token for all /api/* requests
             if !is_token_valid(&request, &session_token) {
@@ -870,7 +872,10 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 (&Method::Get, "/api/environment/status") => {
                     let engine = crate::dead_reckoning::get_engine();
-                    let state = engine.lock().unwrap().query_state();
+                    let state = engine
+                        .lock()
+                        .expect("DeadReckoningEngine mutex lock poisoned")
+                        .query_state();
                     let body = serde_json::to_string(&state).unwrap_or_default();
                     let resp = Response::from_string(body)
                         .with_header(json_header)
@@ -892,10 +897,16 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                     if let Ok(payload) = serde_json::from_str::<EnvironmentPayload>(&content) {
                         let engine = crate::dead_reckoning::get_engine();
-                        engine.lock().unwrap().set_mode(payload.mode);
+                        engine
+                            .lock()
+                            .expect("DeadReckoningEngine mutex lock poisoned")
+                            .set_mode(payload.mode);
                         let _ = crate::dead_reckoning::set_driver_environment_mode(payload.mode);
 
-                        let state = engine.lock().unwrap().query_state();
+                        let state = engine
+                            .lock()
+                            .expect("DeadReckoningEngine mutex lock poisoned")
+                            .query_state();
                         let body = serde_json::to_string(&state).unwrap_or_default();
                         let resp = Response::from_string(body)
                             .with_header(json_header)
@@ -934,7 +945,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             if let Some(index_file) = Asset::get("index.html") {
                 let mime_header =
                     Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-                        .unwrap();
+                        .expect("Static HTML Content-Type header is valid");
                 let raw = index_file.data.into_owned();
                 let html_str = String::from_utf8_lossy(&raw);
                 let injected = if html_str.contains("<head>") {
@@ -968,8 +979,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
         if let Some(file) = Asset::get(path) {
             let mime = from_path(path).first_or_octet_stream();
-            let mime_header =
-                Header::from_bytes(&b"Content-Type"[..], mime.as_ref().as_bytes()).unwrap();
+            let mime_header = Header::from_bytes(&b"Content-Type"[..], mime.as_ref().as_bytes())
+                .expect("Static asset MIME Content-Type header is valid");
             let data = file.data.into_owned();
             let len = data.len();
             let resp = Response::new(
@@ -983,7 +994,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         } else if let Some(index_file) = Asset::get("index.html") {
             // SPA fallback: return index.html for client-side routing
             let mime_header =
-                Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..]).unwrap();
+                Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+                    .expect("Static HTML Content-Type header is valid");
             let raw = index_file.data.into_owned();
             let html_str = String::from_utf8_lossy(&raw);
             let injected = if html_str.contains("<head>") {
@@ -1033,8 +1045,9 @@ mod tests {
             index.is_some(),
             "index.html must be present in embedded assets"
         );
-        let file = index.unwrap();
-        let content = std::str::from_utf8(file.data.as_ref()).unwrap();
+        let file = index.expect("index.html must be present in embedded assets");
+        let content = std::str::from_utf8(file.data.as_ref())
+            .expect("index.html content must be valid utf-8");
         assert!(
             content.contains("<div id=\"root\"></div>"),
             "index.html must contain root div"
@@ -1082,7 +1095,8 @@ mod tests {
             "driftRadius": 2.0
         }"#;
 
-        let parsed: WebSpoofConfig = serde_json::from_str(json_input).unwrap();
+        let parsed: WebSpoofConfig =
+            serde_json::from_str(json_input).expect("Test JSON should parse into WebSpoofConfig");
         assert_eq!(parsed.latitude, 32.6577);
         assert_eq!(parsed.longitude, 51.6775);
         assert_eq!(parsed.altitude, 1570.0);

@@ -1,5 +1,5 @@
 use anyhow::{anyhow, Result};
-use quick_xml::events::Event;
+use quick_xml::events::{BytesStart, Event};
 use quick_xml::reader::Reader;
 use serde::{Deserialize, Serialize};
 
@@ -22,125 +22,136 @@ pub struct Track {
     pub total_distance_meters: f64,
 }
 
+fn parse_lat_lon(
+    attributes: quick_xml::events::attributes::Attributes,
+) -> (Option<f64>, Option<f64>) {
+    let mut lat = None;
+    let mut lon = None;
+    for attr in attributes.flatten() {
+        if attr.key.as_ref() == b"lat" {
+            if let Ok(val) = std::str::from_utf8(&attr.value) {
+                lat = val.parse::<f64>().ok();
+            }
+        } else if attr.key.as_ref() == b"lon" {
+            if let Ok(val) = std::str::from_utf8(&attr.value) {
+                lon = val.parse::<f64>().ok();
+            }
+        }
+    }
+    (lat, lon)
+}
+
+fn compute_cumulative_distance(waypoints: &[Waypoint]) -> f64 {
+    let mut total_distance_meters = 0.0;
+    for i in 0..waypoints.len().saturating_sub(1) {
+        let p1 = &waypoints[i];
+        let p2 = &waypoints[i + 1];
+        total_distance_meters += haversine_distance_meters(p1.lat, p1.lon, p2.lat, p2.lon);
+    }
+    total_distance_meters
+}
+
+#[derive(Default)]
+struct GpxParserState {
+    waypoints: Vec<Waypoint>,
+    track_name: Option<String>,
+    in_name_tag: bool,
+    in_ele_tag: bool,
+    in_time_tag: bool,
+    in_point: bool,
+    current_lat: Option<f64>,
+    current_lon: Option<f64>,
+    current_alt: Option<f64>,
+    current_time: Option<String>,
+}
+
+impl GpxParserState {
+    fn handle_start_tag(&mut self, e: &BytesStart) {
+        match e.name().as_ref() {
+            b"trkpt" | b"wpt" | b"rtept" => {
+                self.in_point = true;
+                let (lat, lon) = parse_lat_lon(e.attributes());
+                self.current_lat = lat;
+                self.current_lon = lon;
+                self.current_alt = None;
+                self.current_time = None;
+            }
+            b"ele" => {
+                if self.in_point {
+                    self.in_ele_tag = true;
+                }
+            }
+            b"time" => {
+                if self.in_point {
+                    self.in_time_tag = true;
+                }
+            }
+            b"name" if !self.in_point && self.track_name.is_none() => {
+                self.in_name_tag = true;
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_text(&mut self, text: &str) {
+        if self.in_ele_tag {
+            self.current_alt = text.parse::<f64>().ok();
+        } else if self.in_time_tag {
+            self.current_time = Some(text.to_string());
+        } else if self.in_name_tag {
+            self.track_name = Some(text.to_string());
+        }
+    }
+
+    fn handle_end_tag(&mut self, tag_name: &[u8]) {
+        match tag_name {
+            b"trkpt" | b"wpt" | b"rtept" => {
+                if let (Some(lat), Some(lon)) = (self.current_lat, self.current_lon) {
+                    self.waypoints.push(Waypoint {
+                        lat,
+                        lon,
+                        alt: self.current_alt,
+                        time: self.current_time.take(),
+                    });
+                }
+                self.in_point = false;
+            }
+            b"ele" => self.in_ele_tag = false,
+            b"time" => self.in_time_tag = false,
+            b"name" => self.in_name_tag = false,
+            _ => {}
+        }
+    }
+
+    fn handle_empty_tag(&mut self, e: &BytesStart) {
+        if matches!(e.name().as_ref(), b"trkpt" | b"wpt" | b"rtept") {
+            let (lat, lon) = parse_lat_lon(e.attributes());
+            if let (Some(lat_val), Some(lon_val)) = (lat, lon) {
+                self.waypoints.push(Waypoint {
+                    lat: lat_val,
+                    lon: lon_val,
+                    alt: None,
+                    time: None,
+                });
+            }
+        }
+    }
+}
+
 /// Parses standard GPX 1.0 or 1.1 XML content into a structured Track.
 pub fn parse_gpx(xml_content: &str) -> Result<Track> {
     let mut reader = Reader::from_str(xml_content);
     reader.config_mut().trim_text(true);
 
-    let mut waypoints = Vec::new();
-    let mut track_name: Option<String> = None;
-
-    let mut in_name_tag = false;
-    let mut in_ele_tag = false;
-    let mut in_time_tag = false;
-
-    let mut current_lat: Option<f64> = None;
-    let mut current_lon: Option<f64> = None;
-    let mut current_alt: Option<f64> = None;
-    let mut current_time: Option<String> = None;
-    let mut in_point = false;
-
+    let mut state = GpxParserState::default();
     let mut buf = Vec::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(ref e)) => {
-                let name = e.name();
-                match name.as_ref() {
-                    b"trkpt" | b"wpt" | b"rtept" => {
-                        in_point = true;
-                        current_lat = None;
-                        current_lon = None;
-                        current_alt = None;
-                        current_time = None;
-
-                        for attr in e.attributes().flatten() {
-                            if attr.key.as_ref() == b"lat" {
-                                if let Ok(val) = std::str::from_utf8(&attr.value) {
-                                    current_lat = val.parse::<f64>().ok();
-                                }
-                            } else if attr.key.as_ref() == b"lon" {
-                                if let Ok(val) = std::str::from_utf8(&attr.value) {
-                                    current_lon = val.parse::<f64>().ok();
-                                }
-                            }
-                        }
-                    }
-                    b"ele" => {
-                        if in_point {
-                            in_ele_tag = true;
-                        }
-                    }
-                    b"time" => {
-                        if in_point {
-                            in_time_tag = true;
-                        }
-                    }
-                    b"name" if !in_point && track_name.is_none() => {
-                        in_name_tag = true;
-                    }
-                    _ => {}
-                }
-            }
-            Ok(Event::Text(ref e)) => {
-                let text = e.unescape().unwrap_or_default();
-                if in_ele_tag {
-                    current_alt = text.parse::<f64>().ok();
-                } else if in_time_tag {
-                    current_time = Some(text.to_string());
-                } else if in_name_tag {
-                    track_name = Some(text.to_string());
-                }
-            }
-            Ok(Event::End(ref e)) => {
-                let name = e.name();
-                match name.as_ref() {
-                    b"trkpt" | b"wpt" | b"rtept" => {
-                        if let (Some(lat), Some(lon)) = (current_lat, current_lon) {
-                            waypoints.push(Waypoint {
-                                lat,
-                                lon,
-                                alt: current_alt,
-                                time: current_time.take(),
-                            });
-                        }
-                        in_point = false;
-                    }
-                    b"ele" => in_ele_tag = false,
-                    b"time" => in_time_tag = false,
-                    b"name" => in_name_tag = false,
-                    _ => {}
-                }
-            }
-            Ok(Event::Empty(ref e)) => {
-                let name = e.name();
-                match name.as_ref() {
-                    b"trkpt" | b"wpt" | b"rtept" => {
-                        let mut lat = None;
-                        let mut lon = None;
-                        for attr in e.attributes().flatten() {
-                            if attr.key.as_ref() == b"lat" {
-                                if let Ok(val) = std::str::from_utf8(&attr.value) {
-                                    lat = val.parse::<f64>().ok();
-                                }
-                            } else if attr.key.as_ref() == b"lon" {
-                                if let Ok(val) = std::str::from_utf8(&attr.value) {
-                                    lon = val.parse::<f64>().ok();
-                                }
-                            }
-                        }
-                        if let (Some(lat_val), Some(lon_val)) = (lat, lon) {
-                            waypoints.push(Waypoint {
-                                lat: lat_val,
-                                lon: lon_val,
-                                alt: None,
-                                time: None,
-                            });
-                        }
-                    }
-                    _ => {}
-                }
-            }
+            Ok(Event::Start(ref e)) => state.handle_start_tag(e),
+            Ok(Event::Text(ref e)) => state.handle_text(&e.unescape().unwrap_or_default()),
+            Ok(Event::End(ref e)) => state.handle_end_tag(e.name().as_ref()),
+            Ok(Event::Empty(ref e)) => state.handle_empty_tag(e),
             Ok(Event::Eof) => break,
             Err(e) => {
                 return Err(anyhow!(
@@ -154,21 +165,15 @@ pub fn parse_gpx(xml_content: &str) -> Result<Track> {
         buf.clear();
     }
 
-    if waypoints.is_empty() {
+    if state.waypoints.is_empty() {
         return Err(anyhow!("No valid GPS waypoints found in GPX content"));
     }
 
-    // Compute cumulative track distance
-    let mut total_distance_meters = 0.0;
-    for i in 0..waypoints.len().saturating_sub(1) {
-        let p1 = &waypoints[i];
-        let p2 = &waypoints[i + 1];
-        total_distance_meters += haversine_distance_meters(p1.lat, p1.lon, p2.lat, p2.lon);
-    }
+    let total_distance_meters = compute_cumulative_distance(&state.waypoints);
 
     Ok(Track {
-        name: track_name,
-        waypoints,
+        name: state.track_name,
+        waypoints: state.waypoints,
         total_distance_meters,
     })
 }
