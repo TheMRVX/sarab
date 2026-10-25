@@ -147,6 +147,6 @@ mod tests {
 
         // Sharp 90 degree turn -> should slow down
         let corner_speed = cornering_speed_mps(base_speed, 90.0, 180.0);
-        assert!(corner_speed < 20.0 && corner_speed >= 7.0);
+        assert!((7.0..20.0).contains(&corner_speed));
     }
 }

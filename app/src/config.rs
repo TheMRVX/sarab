@@ -3,6 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SpoofConfig {
     pub lat: f64,
@@ -102,23 +108,6 @@ pub fn get_active_port() -> u16 {
     8090
 }
 
-pub fn save_active_port(port: u16) -> Result<()> {
-    let dir = get_sarab_dir();
-    if is_reparse_point(&dir) {
-        anyhow::bail!(
-            "Refusing to save port in reparse point / symlink directory: {:?}",
-            dir
-        );
-    }
-    fs::create_dir_all(&dir)?;
-    let path = get_active_port_path();
-    if is_reparse_point(&path) {
-        anyhow::bail!("Refusing to write to reparse point / symlink: {:?}", path);
-    }
-    fs::write(&path, port.to_string())?;
-    Ok(())
-}
-
 #[cfg(windows)]
 fn is_reparse_point(path: &std::path::Path) -> bool {
     use std::os::windows::fs::MetadataExt;
@@ -138,38 +127,99 @@ fn is_reparse_point(path: &std::path::Path) -> bool {
     }
 }
 
-pub fn save_session_token(token: &str) -> Result<()> {
+pub fn ensure_secure_data_dir() -> Result<PathBuf> {
     let dir = get_sarab_dir();
     if is_reparse_point(&dir) {
         anyhow::bail!(
-            "Refusing to save token in reparse point / symlink directory: {:?}",
+            "Refusing to operate on reparse point / symlink directory: {:?}",
             dir
         );
     }
     fs::create_dir_all(&dir)?;
+
+    #[cfg(windows)]
+    {
+        // Harden directory permissions unconditionally (SYSTEM: Full, Administrators: Full, Authenticated Users: Read/Execute)
+        // This ensures directory permissions are fixed even when upgrading from older versions.
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.args([
+            dir.to_str().unwrap_or_default(),
+            "/inheritance:d",
+            "/grant:r",
+            "*S-1-5-18:(OI)(CI)F",
+            "/grant:r",
+            "*S-1-5-32-544:(OI)(CI)F",
+            "/grant:r",
+            "*S-1-5-11:(OI)(CI)RX",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
+    }
+
+    if is_reparse_point(&dir) {
+        anyhow::bail!(
+            "Directory became a reparse point / symlink during security configuration: {:?}",
+            dir
+        );
+    }
+
+    Ok(dir)
+}
+
+pub fn save_active_port(port: u16) -> Result<()> {
+    let _dir = ensure_secure_data_dir()?;
+    let path = get_active_port_path();
+    if is_reparse_point(&path) {
+        anyhow::bail!("Refusing to write to reparse point / symlink: {:?}", path);
+    }
+    fs::write(&path, port.to_string())?;
+
+    #[cfg(windows)]
+    {
+        // Set ACL on .port: Full control for SYSTEM & Admins, Read for Authenticated Users
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.args([
+            path.to_str().unwrap_or_default(),
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:F",
+            "/grant:r",
+            "*S-1-5-32-544:F",
+            "/grant:r",
+            "*S-1-5-11:R",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
+    }
+
+    Ok(())
+}
+
+pub fn save_session_token(token: &str) -> Result<()> {
+    let _dir = ensure_secure_data_dir()?;
     let path = get_session_token_path();
     if is_reparse_point(&path) {
         anyhow::bail!("Refusing to write to reparse point / symlink: {:?}", path);
     }
-    fs::write(&path, token)?;
+
+    // Pre-create empty file to establish DACL before writing sensitive token (zero-exposure window)
+    fs::write(&path, "")?;
 
     #[cfg(windows)]
     {
-        // Restrict token file ACL:
-        // Disable inheritance, grant Full Control to SYSTEM (S-1-5-18) & Administrators (S-1-5-32-544),
-        // and grant Read access to Authenticated Users (S-1-5-11) so CLI commands can authenticate.
-        let _ = std::process::Command::new("icacls")
-            .args([
-                path.to_str().unwrap_or_default(),
-                "/inheritance:r",
-                "/grant:r",
-                "*S-1-5-18:F",
-                "/grant:r",
-                "*S-1-5-32-544:F",
-                "/grant:r",
-                "*S-1-5-11:R",
-            ])
-            .output();
+        // Restrict token file ACL strictly to SYSTEM (S-1-5-18) & Administrators (S-1-5-32-544):
+        // Inheritance removed, ordinary users have NO access.
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.args([
+            path.to_str().unwrap_or_default(),
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:F",
+            "/grant:r",
+            "*S-1-5-32-544:F",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
     }
 
     #[cfg(unix)]
@@ -178,18 +228,51 @@ pub fn save_session_token(token: &str) -> Result<()> {
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o600));
     }
 
+    if is_reparse_point(&path) {
+        anyhow::bail!(
+            "Token file became a reparse point / symlink during ACL application: {:?}",
+            path
+        );
+    }
+
+    // Safely write the actual token content once permissions are fully restricted
+    fs::write(&path, token)?;
+
     Ok(())
 }
 
 pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
+    let _dir = ensure_secure_data_dir()?;
     let path = get_config_path();
-    if let Some(parent) = path.parent() {
-        let _ = fs::create_dir_all(parent);
+    if is_reparse_point(&path) {
+        anyhow::bail!(
+            "Refusing to write config to reparse point / symlink: {:?}",
+            path
+        );
     }
     let data =
         toml::to_string_pretty(config).context("Failed to serialize configuration to TOML")?;
     fs::write(&path, data)
         .with_context(|| format!("Failed to write configuration file to {:?}", path))?;
+
+    #[cfg(windows)]
+    {
+        // Set ACL on config.toml: Full control for SYSTEM & Admins, Read for Authenticated Users
+        let mut cmd = std::process::Command::new("icacls");
+        cmd.args([
+            path.to_str().unwrap_or_default(),
+            "/inheritance:r",
+            "/grant:r",
+            "*S-1-5-18:F",
+            "/grant:r",
+            "*S-1-5-32-544:F",
+            "/grant:r",
+            "*S-1-5-11:R",
+        ]);
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        let _ = cmd.output();
+    }
+
     Ok(())
 }
 
@@ -253,8 +336,9 @@ mod tests {
             drift_enabled: true,
             drift_radius: 1.5,
         };
-        let serialized = toml::to_string(&original).unwrap();
-        let deserialized: SpoofConfig = toml::from_str(&serialized).unwrap();
+        let serialized = toml::to_string(&original).expect("SpoofConfig should serialize to TOML");
+        let deserialized: SpoofConfig =
+            toml::from_str(&serialized).expect("Serialized TOML should deserialize to SpoofConfig");
         assert_eq!(original, deserialized);
     }
 }

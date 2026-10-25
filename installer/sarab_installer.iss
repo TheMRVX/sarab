@@ -2,7 +2,7 @@
 ; Inno Setup 6.x Script
 #define MyAppName "Sarab Virtual GNSS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.1"
+  #define MyAppVersion "1.0.2"
 #endif
 #define MyAppPublisher "TheMRVX"
 #define MyAppURL "https://github.com/TheMRVX/sarab"

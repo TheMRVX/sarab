@@ -46,7 +46,8 @@ driver/package/
 *.secret
 *.local
 app/config.toml
-config.toml
+/config.toml
+!app/.cargo/config.toml
 
 # Node & GUI Dependencies
 gui/node_modules/
