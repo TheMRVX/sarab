@@ -7,6 +7,7 @@ Documentation for [Sarab](../README.md):
 | [Installation and removal](INSTALLATION.md) | Windows users preparing Test Signing and managing a virtual driver |
 | [Usage and troubleshooting](USAGE.md) | CLI users, testers and dashboard operators |
 | [Building and releases](BUILDING.md) | Developers and maintainers |
+| [Licensing and redistribution](LICENSING.md) | Distributors and contributors auditing notices |
 | [Contributing](../CONTRIBUTING.md) | Contributors and reviewers |
 | [Security policy](../SECURITY.md) | Security researchers and administrators |
 | [Support](../SUPPORT.md) | People asking questions or reporting bugs |

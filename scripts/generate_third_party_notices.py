@@ -93,7 +93,7 @@ def generate(rust: Path, frontend_json: Path, repo_root: Path) -> str:
         "Operators must also follow https://operations.osmfoundation.org/policies/tiles/.",
         "",
     ])
-    return "\n".join(output)
+    return "\n".join(line.rstrip(" \t") for line in "\n".join(output).split("\n"))
 
 
 def main() -> None:

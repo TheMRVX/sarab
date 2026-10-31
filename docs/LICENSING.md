@@ -18,7 +18,7 @@ Existing releases keep their original license grants; changes to repository docu
 
 ## Release verification and automated inventory
 
-The source-tree THIRD-PARTY-NOTICES.md is a legacy reference and is explicitly **incomplete**. Before packaging, the release workflow runs cargo-deny, generates Rust license texts with cargo-about from the Windows-target Cargo.lock graph, runs license-checker for frontend production dependencies from package-lock.json, and assembles a redistribution notice using scripts/generate_third_party_notices.py. The generated result, rather than the legacy source-tree file, is shipped in release ZIP and Installer. The separate legal-audit CI workflow retains generated reports as inspectable artifacts.
+The committed [third-party license report](../THIRD-PARTY-NOTICES.md) is generated from exact lockfile versions by the license-audit workflow. Before packaging, the release workflow runs cargo-deny, generates Rust license texts with cargo-about from the Windows-target Cargo.lock graph, runs license-checker for frontend production dependencies from package-lock.json, and assembles a fresh redistribution notice using scripts/generate_third_party_notices.py. The audit CI job verifies that the committed notice is up to date, and retains its source reports as downloadable artifacts.
 
 The Inno Setup license dialog displays an OR choice together with both full, unmodified project license texts. All source and binary releases also include the separate LICENSE-MIT and LICENSE-APACHE files. Manual workflow_dispatch runs are dry runs by default; only explicit publish=true may publish a release.
 

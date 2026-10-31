@@ -62,6 +62,9 @@ jobs:
             --frontend-json frontend-license-report.json \
             --output license-artifacts/THIRD-PARTY-NOTICES.md
 
+      - name: Verify committed notices match resolved lockfiles
+        run: cmp THIRD-PARTY-NOTICES.md license-artifacts/THIRD-PARTY-NOTICES.md
+
       - name: Upload actual license audit outputs
         uses: actions/upload-artifact@v4
         with:
