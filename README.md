@@ -125,6 +125,6 @@ Bug reports, documentation improvements and focused pull requests are welcome. S
 
 ## License
 
-Sarab is offered under **MIT OR Apache-2.0**, at your option: [MIT](LICENSE-MIT) and [Apache-2.0](LICENSE-APACHE). Review [NOTICE](NOTICE) and [third-party software notices](THIRD-PARTY-NOTICES.md) for additional attribution requirements.
+Sarab is dual-licensed under **[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)**, at your option. The two complete license texts are provided separately; see [licensing and redistribution](docs/LICENSING.md), [NOTICE](NOTICE), and [third-party notices](THIRD-PARTY-NOTICES.md).
 
-Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in Sarab are dual-licensed under the same terms without additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Sarab by you, as defined in Apache-2.0, shall be dual-licensed under the same terms, without any additional terms or conditions.

@@ -49,6 +49,6 @@ UMDF driver, certificate, privilege, Windows registry, firewall, service or API-
 
 ## Licensing
 
-The project is offered under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option. Unless explicitly stated otherwise, a contribution intentionally submitted for inclusion is provided under the same dual-license terms, with no additional terms or conditions. Confirm you have the right to submit code and assets; do not copy proprietary code or copyrighted assets without appropriate permission.
+The project is offered under [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE), at your option. Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Sarab by you, as defined in Apache-2.0, shall be dual-licensed under the same terms, without any additional terms or conditions. Confirm you have the right to submit code and assets; do not copy proprietary code or copyrighted assets without appropriate permission.
 
 For help, see [SUPPORT.md](SUPPORT.md).

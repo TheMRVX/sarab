@@ -1,0 +1,12 @@
+# License policy for the x86_64-pc-windows-msvc binary release.
+[graph]
+targets = ["x86_64-pc-windows-msvc"]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Zlib", "CC0-1.0", "Unicode-3.0", "Unicode-DFS-2016", "MIT-0"]
+confidence-threshold = 0.8
+unused-allowed-license = "warn"
+
+[[licenses.exceptions]]
+name = "ring"
+allow = ["OpenSSL"]

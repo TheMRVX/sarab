@@ -2,7 +2,7 @@
 
 Sarab source is offered under **MIT OR Apache-2.0**, at your option, as stated in `app/Cargo.toml` and `gui/package.json`. Read the full texts in [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE).
 
-This repository uses the two-file dual-license convention. No custom root LICENSE is required. The [NOTICE](../NOTICE) is intentionally minimal because Apache-2.0 §4(d) can require preservation of its attribution notices in derivative distributions.
+This repository uses the two-file dual-license convention; there is no custom root LICENSE file. The [NOTICE](../NOTICE) is intentionally minimal because Apache-2.0 §4(d) can require preservation of its attribution notices in derivative distributions.
 
 ## Contributions
 
@@ -16,6 +16,14 @@ Use exact lockfile-resolved dependency versions to audit the release with `cargo
 
 Existing releases keep their original license grants; changes to repository documents do not retroactively alter them.
 
-## Release verification
+## Release verification and automated inventory
 
-Before publishing a release, confirm the archive and installer include `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and complete third-party license notices, then inspect the built outputs. CI compilation alone is insufficient to prove redistribution compliance.
+The source-tree THIRD-PARTY-NOTICES.md is a legacy reference and is explicitly **incomplete**. Before packaging, the release workflow runs cargo-deny, generates Rust license texts with cargo-about from the Windows-target Cargo.lock graph, runs license-checker for frontend production dependencies from package-lock.json, and assembles a redistribution notice using scripts/generate_third_party_notices.py. The generated result, rather than the legacy source-tree file, is shipped in release ZIP and Installer. The separate legal-audit CI workflow retains generated reports as inspectable artifacts.
+
+The Inno Setup license dialog displays an OR choice together with both full, unmodified project license texts. All source and binary releases also include the separate LICENSE-MIT and LICENSE-APACHE files. Manual workflow_dispatch runs are dry runs by default; only explicit publish=true may publish a release.
+
+Review any native driver assets, fonts, icons, service integrations, geospatial data, and other bundled or runtime-sourced materials separately. Scanners do not certify these. Inspect actual ZIP and Installer payloads before publication; CI compilation does not establish legal compliance or driver runtime behavior.
+
+## OpenStreetMap tiles
+
+The Leaflet UI requests https://tile.openstreetmap.org/{z}/{x}/{y}.png and includes visible contributor attribution with a link to https://www.openstreetmap.org/copyright. The OpenStreetMap Foundation tile-use rules (https://operations.osmfoundation.org/policies/tiles/) additionally govern live network requests: preserve a browser Referer, honor caching and rate restrictions, and do not bulk-prefetch. These hosted tiles are not bundled into the product.

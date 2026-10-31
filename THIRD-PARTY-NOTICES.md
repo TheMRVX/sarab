@@ -1,6 +1,6 @@
 # Third-Party Software Notices and Information
 
-This project incorporates third-party open source software. The respective licenses and copyright notices are reproduced below.
+This is a legacy, **incomplete** source-tree notice inventory. It does not enumerate all resolved transitive dependencies or bundled assets. The release workflow regenerates the redistributed third-party license report from app/Cargo.lock and gui/package-lock.json using cargo-about and license-checker. Do not use this hand-maintained file alone to certify redistribution compliance. The full Leaflet BSD-2-Clause terms below must be retained.
 
 ---
 
