@@ -156,16 +156,15 @@ jobs:
           Copy-Item "driver\x64\Release\SarabGnss.inf" -Destination "$packageDir\SarabGnss.inf"
           Copy-Item "driver\x64\Release\*.cat" -Destination "$packageDir\SarabGnss.cat"
           Copy-Item "driver\x64\Release\SarabGnss.cer" -Destination "$packageDir\SarabGnss.cer"
-          Copy-Item "README.md" -Destination "$packageDir\README.md"
-          Copy-Item "LICENSE-APACHE" -Destination "$packageDir\LICENSE-APACHE"
-          Copy-Item "LICENSE-MIT" -Destination "$packageDir\LICENSE-MIT"
-          Copy-Item "NOTICE" -Destination "$packageDir\NOTICE"
-          Copy-Item "THIRD-PARTY-NOTICES.md" -Destination "$packageDir\THIRD-PARTY-NOTICES.md"
-          Copy-Item "docs\LICENSING.md" -Destination "$packageDir\LICENSING.md"
-          foreach ($legalFile in @("LICENSE", "LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "THIRD-PARTY-NOTICES.md", "LICENSING.md")) {
+          Copy-Item "README.md" -Destination "$packageDir\README.md" -ErrorAction Stop
+          Copy-Item "LICENSE-APACHE" -Destination "$packageDir\LICENSE-APACHE" -ErrorAction Stop
+          Copy-Item "LICENSE-MIT" -Destination "$packageDir\LICENSE-MIT" -ErrorAction Stop
+          Copy-Item "NOTICE" -Destination "$packageDir\NOTICE" -ErrorAction Stop
+          Copy-Item "THIRD-PARTY-NOTICES.md" -Destination "$packageDir\THIRD-PARTY-NOTICES.md" -ErrorAction Stop
+          Copy-Item "docs\LICENSING.md" -Destination "$packageDir\LICENSING.md" -ErrorAction Stop
+          foreach ($legalFile in @("LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "THIRD-PARTY-NOTICES.md", "LICENSING.md")) {
             if (-not (Test-Path "$packageDir\$legalFile")) { throw "Missing legal distribution file: $legalFile" }
           }
-          Copy-Item "LICENSE" -Destination "$packageDir\LICENSE"
 
           # Create helper install & uninstall batch scripts for convenience
           @"
