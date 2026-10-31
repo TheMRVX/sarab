@@ -1,0 +1,57 @@
+name: Bug report
+description: Report a reproducible functional problem (not a security vulnerability).
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Do not disclose security vulnerabilities or secrets here. Read SECURITY.md for private reporting guidance."
+  - type: input
+    id: version
+    attributes:
+      label: Sarab version / commit
+      placeholder: "v1.0.2 or commit SHA"
+    validations:
+      required: true
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version / build
+      placeholder: "Windows 11 23H2 x64"
+    validations:
+      required: true
+  - type: dropdown
+    id: mode
+    attributes:
+      label: Operating mode
+      options:
+        - Advanced virtual GNSS
+        - Simple default location
+        - Build or installation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use sanitized commands and test data only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Additional diagnostics
+      description: Redact tokens, paths revealing personal information, certificates and recovery keys.
