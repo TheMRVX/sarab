@@ -161,7 +161,11 @@ jobs:
           Copy-Item "LICENSE-MIT" -Destination "$packageDir\LICENSE-MIT"
           Copy-Item "NOTICE" -Destination "$packageDir\NOTICE"
           Copy-Item "THIRD-PARTY-NOTICES.md" -Destination "$packageDir\THIRD-PARTY-NOTICES.md"
-          Get-Content "LICENSE-MIT", "LICENSE-APACHE" | Set-Content "$packageDir\LICENSE"
+          Copy-Item "docs\LICENSING.md" -Destination "$packageDir\LICENSING.md"
+          foreach ($legalFile in @("LICENSE", "LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "THIRD-PARTY-NOTICES.md", "LICENSING.md")) {
+            if (-not (Test-Path "$packageDir\$legalFile")) { throw "Missing legal distribution file: $legalFile" }
+          }
+          Copy-Item "LICENSE" -Destination "$packageDir\LICENSE"
 
           # Create helper install & uninstall batch scripts for convenience
           @"

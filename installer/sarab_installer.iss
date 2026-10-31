@@ -51,6 +51,7 @@ Source: "..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\LICENSING.md"; DestDir: "{app}"; DestName: "LICENSING.md"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Sarab Virtual GNSS Control Panel"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui --open"; IconFilename: "{app}\{#MyAppExeName}"
