@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Generate redistributable notices from cargo-about and license-checker results.
 
 Inputs MUST be from the exact Cargo.lock and npm package-lock.json used to build.

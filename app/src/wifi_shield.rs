@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Windows Location Authority & Wi-Fi BSSID Anti-Detection Shield.
 //! Eliminates rubberbanding/jitter caused by Windows Location Provider falling back
 //! to Wi-Fi triangulation when Wi-Fi is active.

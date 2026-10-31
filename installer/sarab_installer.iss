@@ -1,3 +1,4 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
 ; Script generated for Sarab Virtual GNSS Suite
 ; Inno Setup 6.x Script
 #define MyAppName "Sarab Virtual GNSS"

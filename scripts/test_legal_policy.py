@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Static invariants for dual-licensing and safe release verification."""
 from pathlib import Path
 import json

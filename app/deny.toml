@@ -8,5 +8,5 @@ confidence-threshold = 0.8
 unused-allowed-license = "warn"
 
 [[licenses.exceptions]]
-name = "ring"
-allow = ["OpenSSL"]
+name = "webpki-roots"
+allow = ["CDLA-Permissive-2.0"]
