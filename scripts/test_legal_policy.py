@@ -5,6 +5,8 @@ from pathlib import Path
 import json
 import re
 import tomllib
+from tempfile import TemporaryDirectory
+from generate_third_party_notices import sha256 as canonical_lock_hash
 
 repo = Path(__file__).resolve().parents[1]
 
@@ -16,6 +18,17 @@ manifest = tomllib.loads((repo / "app/Cargo.toml").read_text())
 pkg = json.loads((repo / "gui/package.json").read_text())
 assert manifest["package"]["license"] == "MIT OR Apache-2.0"
 assert pkg["license"] == "MIT OR Apache-2.0"
+
+# Check LF/CRLF checkout invariance for generated report fingerprints.
+with TemporaryDirectory() as tmp:
+    lf = Path(tmp, "lf")
+    crlf = Path(tmp, "crlf")
+    lf.write_bytes(b"one\ntwo\n")
+    crlf.write_bytes(b"one\r\ntwo\r\n")
+    assert canonical_lock_hash(lf) == canonical_lock_hash(crlf)
+    original = (repo / "app/Cargo.lock").read_bytes()
+    crlf.write_bytes(original.replace(b"\r\n", b"\n").replace(b"\n", b"\r\n"))
+    assert canonical_lock_hash(repo / "app/Cargo.lock") == canonical_lock_hash(crlf)
 
 release = (repo / ".github/workflows/release.yml").read_text()
 inno = (repo / "installer/sarab_installer.iss").read_text()

@@ -14,7 +14,9 @@ import sys
 
 
 def sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    # Git checkout may convert lockfile line endings to CRLF on Windows.
+    # Fingerprint canonical LF content for reproducible Linux/Windows notices.
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
 
 
 def fence(text: str) -> str:
@@ -47,8 +49,8 @@ def generate(rust: Path, frontend_json: Path, repo_root: Path) -> str:
         "",
         "## Input lockfile fingerprints",
         "",
-        "- Cargo.lock SHA-256: " + sha256(repo_root / "app/Cargo.lock"),
-        "- package-lock.json SHA-256: " + sha256(repo_root / "gui/package-lock.json"),
+        "- Cargo.lock SHA-256 (LF-normalized): " + sha256(repo_root / "app/Cargo.lock"),
+        "- package-lock.json SHA-256 (LF-normalized): " + sha256(repo_root / "gui/package-lock.json"),
         "",
         "## Rust dependency notices",
         "",

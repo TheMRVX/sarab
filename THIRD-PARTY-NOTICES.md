@@ -8,8 +8,8 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256: bfec585a10f8af00b65a414a58765e95257cacd39f8685cabc0e0cdba5eb0a2e
-- package-lock.json SHA-256: 2386fceb9098027fa49f3816ead91194bc89a65c32c162e9a638f8ce19f42e7e
+- Cargo.lock SHA-256 (LF-normalized): bfec585a10f8af00b65a414a58765e95257cacd39f8685cabc0e0cdba5eb0a2e
+- package-lock.json SHA-256 (LF-normalized): 2386fceb9098027fa49f3816ead91194bc89a65c32c162e9a638f8ce19f42e7e
 
 ## Rust dependency notices
 
