@@ -1,94 +1,30 @@
-# Third-Party Software Notices and Information
+# Third-party notices and license inventory
 
-This project incorporates third-party open source software. The respective licenses and copyright notices are reproduced below.
+Sarab uses third-party software. This file is a **non-exhaustive inventory**, not a substitute for the actual license files of every dependency included in a release. For redistributed binaries, audit the exact resolved dependencies from `app/Cargo.lock` and `gui/package-lock.json`, plus native driver build inputs, assets, and runtime components.
 
----
+## Frontend (direct dependencies)
 
-## 1. Leaflet (JavaScript Interactive Map Library)
-- **License**: BSD 2-Clause
-- **Copyright**: (c) 2010-2023, Volodymyr Agafonkin; (c) 2010-2011, CloudMade
-```text
-Redistribution and use in source and binary forms, with or without modification, are
-permitted provided that the following conditions are met:
+- React and React DOM — MIT; copyright Meta Platforms, Inc. and contributors.
+- Leaflet — BSD-2-Clause; copyright Volodymyr Agafonkin and other contributors.
+- Material UI and MUI icons — MIT; copyright respective MUI contributors.
+- Emotion — MIT; copyright respective Emotion contributors.
 
-   1. Redistributions of source code must retain the above copyright notice, this list of
-      conditions and the following disclaimer.
+These are direct dependencies, **not the complete frontend dependency tree**. Preserve any additional notices shipped with the resolved packages.
 
-   2. Redistributions in binary form must reproduce the above copyright notice, this list
-      of conditions and the following disclaimer in the documentation and/or other materials
-      provided with the distribution.
+## Rust (direct dependencies)
 
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY
-EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
-MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
-EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
-SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
-HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR
-TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
-SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
+The CLI and daemon use `clap`, `serde`, `serde_json`, `toml`, `anyhow`, `rust-embed`, `tiny_http`, `mime_guess`, `quick-xml`, `ureq`, `getrandom`, `windows`, and `windows-service` (the last two Windows-specific). Verify their exact resolved versions, features, license expressions and transitive dependencies against `app/Cargo.lock` and the upstream license texts before release. Do not infer license compliance from this summary.
 
----
+## Other materials
 
-## 2. React and React DOM
-- **License**: MIT
-- **Copyright**: (c) Meta Platforms, Inc. and affiliates.
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+Windows SDK/WDK, generated driver files, test-signing certificates, map tiles, route services, bundled fonts, icons and installer/runtime dependencies have different origins and distribution considerations. Do not assume these materials are covered by Sarab's MIT/Apache dual license. Identify and retain applicable terms for anything actually redistributed.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+## Audit procedure
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
+1. Resolve and record dependency versions using lockfiles and build manifests.
+2. Generate a dependency/license inventory using maintained tooling, then inspect exceptions and multiple-license expressions manually.
+3. Collect the required license and copyright notices for **redistributed** components, including transitives and assets.
+4. Compare the inventory with the final installer and ZIP contents; keep release-specific evidence.
+5. Do not claim a full compliance audit until the inventory and notices are complete.
 
----
-
-## 3. Material-UI (MUI Core) & Emotion
-- **License**: MIT
-- **Copyright**: (c) 2014 Call-Em-All / Material-UI contributors; (c) Emotion team
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
----
-
-## 4. Rust Crates Embedded in Binary
-The CLI and daemon executable (`sarab.exe`) statically links dependencies licensed under standard MIT, Apache-2.0, and BSD licenses:
-- `clap` (MIT OR Apache-2.0)
-- `serde`, `serde_json` (MIT OR Apache-2.0)
-- `toml` (MIT OR Apache-2.0)
-- `anyhow` (MIT OR Apache-2.0)
-- `tiny_http` (MIT OR Apache-2.0)
-- `ureq` (MIT OR Apache-2.0)
-- `quick-xml` (MIT)
-- `rust-embed` (MIT)
-- `windows`, `windows-service` (MIT OR Apache-2.0)
+See [licensing and redistribution](docs/LICENSING.md) for project-license terms.
