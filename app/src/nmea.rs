@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! NMEA 0183 protocol generator and multi-constellation satellite simulation for Sarab GNSS.
 //! Supports standard sentences: RMC, GGA, GSA, GSV, VTG with standard XOR checksums.
 

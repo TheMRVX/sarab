@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """Verify repository-local Markdown links without network requests or dependencies."""
 from __future__ import annotations
 

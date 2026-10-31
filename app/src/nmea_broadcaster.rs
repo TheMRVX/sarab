@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! NMEA UDP network broadcaster for Sarab GNSS.
 //! Broadcasts standard NMEA 0183 sentences on UDP port 10110 (OpenCPN / marine GIS default).
 

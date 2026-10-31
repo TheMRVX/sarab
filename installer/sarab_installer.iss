@@ -1,3 +1,4 @@
+; SPDX-License-Identifier: MIT OR Apache-2.0
 ; Script generated for Sarab Virtual GNSS Suite
 ; Inno Setup 6.x Script
 #define MyAppName "Sarab Virtual GNSS"
@@ -19,7 +20,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\Sarab
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-LicenseFile=..\release_package\LICENSE
+LicenseFile=..\release_package\LICENSE-CHOICE.txt
 OutputDir=.
 OutputBaseFilename=SarabSetup-v{#MyAppVersion}
 Compression=lzma2/ultra64
@@ -46,11 +47,12 @@ Source: "..\release_package\SarabGnss.dll"; DestDir: "{app}"; Flags: ignoreversi
 Source: "..\release_package\SarabGnss.cat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\release_package\SarabGnss.cer"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\release_package\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\release_package\LICENSE-CHOICE.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE-MIT"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSE-APACHE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\NOTICE"; DestDir: "{app}"; Flags: ignoreversion
-Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\release_package\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\docs\LICENSING.md"; DestDir: "{app}"; DestName: "LICENSING.md"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\Sarab Virtual GNSS Control Panel"; Filename: "{app}\{#MyAppExeName}"; Parameters: "gui --open"; IconFilename: "{app}\{#MyAppExeName}"

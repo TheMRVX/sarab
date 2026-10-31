@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 //! Urban Canyon Multipath and Tunnel Dead Reckoning Engine
 //!
 //! Models realistic GNSS signal degradation, multipath jitter, and inertial propagation
