@@ -68,7 +68,7 @@ jobs:
           Push-Location app
           cargo deny check licenses
           if ($LASTEXITCODE -ne 0) { throw "Rust license policy failed" }
-          cargo about generate about.hbs > ..\rust-license-report.md
+          cargo about generate --output-file ..\rust-license-report.md about.hbs
           if ($LASTEXITCODE -ne 0) { throw "Rust third-party notices generation failed" }
           Pop-Location
           Push-Location gui
