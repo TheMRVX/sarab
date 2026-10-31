@@ -1,289 +1,130 @@
 <div align="center">
 
-# Sarab
+# Sarab (سراب)
 
-**A Windows location provider that feeds custom coordinates into the native Windows Location platform.**
+**Virtual GNSS location provider and testing toolkit for Windows**
+
+Sarab supplies configurable coordinates to the Windows Location platform through a user-mode virtual GNSS driver. A Rust CLI and a local React dashboard manage location fixes and route simulations.
 
 [![CI](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE-APACHE)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE-MIT)
-![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011%20x64-0078D4)
-![Rust](https://img.shields.io/badge/CLI-Rust-orange)
-![UI](https://img.shields.io/badge/GUI-Material--UI%20%2B%20React-00e5ff)
-![Driver](https://img.shields.io/badge/driver-UMDF%202.0%20(C%2B%2B)-5C2D91)
+[![MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
+![Windows x64](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D4)
 
-[Overview](#overview) •
-[Modes](#operating-modes) •
-[GUI Dashboard](#web-control-dashboard--interactive-map-gui) •
-[Installation](#installation) •
-[Usage](#usage) •
-[Building](#building-from-source) •
-[Uninstall](#uninstallation) •
-[FAQ](#faq)
+[Features](#features) · [Getting started](#getting-started) · [Documentation](#documentation) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md) · [Releases](https://github.com/TheMRVX/sarab/releases)
 
 </div>
 
----
-
 ## Overview
 
-Sarab (Persian: *سراب*, "mirage") is a high-precision virtual GNSS driver and control suite that reports user-defined coordinates (latitude, longitude, altitude, accuracy) to Windows. Applications that use `Windows.Devices.Geolocation`, such as Windows Maps, Weather, Edge and Chrome, receive them as a fix from a real GPS sensor.
+Sarab (*sarāb*, Persian for *mirage*) helps developers, testers and researchers exercise location-aware Windows applications without physically moving the test computer. It offers a virtual sensor path and a simpler system-default-location path.
 
-Typical use cases:
+**Important limitations:** Sarab does **not** change a machine's public IP address or guarantee that every application will use the configured position. Applications may use Wi-Fi, network, cached, independent or remote location signals. The project does not guarantee resistance to spoofing detection. Feature availability depends on the Windows build, driver state and application behavior.
 
-- Testing and debugging location-aware software without physical movement.
-- QA of geo-dependent features (regional content, geofencing, weather).
-- Research and development on the Windows Location stack.
+Use Sarab only on systems you own or are authorized to administer, and respect the rules of the software and services under test.
 
-> [!WARNING]
-> Sarab is intended for development, testing and research on machines you own. You are responsible for complying with the terms of service of any application or service you use it with, and with applicable law.
+## Features
 
-## Operating Modes
+- **Virtual GNSS (advanced mode):** a UMDF 2.0 sensor driver supplies configured latitude, longitude, altitude and accuracy through the Windows Location platform.
+- **Simple mode:** updates the Windows system default location without installing the virtual driver; this is a fallback, not an equivalent replacement.
+- **CLI and dashboard:** a Rust command-line tool and a locally served React / Material UI / Leaflet interface.
+- **Route simulation:** import GPX tracks and replay movement; a road-routing planning feature can use an external OSRM service.
+- **Diagnostics:** inspect driver status and query location values returned by the Windows location API.
+- **Optional background service:** manage the local server with Windows Service Control Manager commands.
 
-| | **Advanced Mode** (recommended) | **Simple Mode** (fallback) |
-|---|---|---|
-| Mechanism | Virtual GNSS device (UMDF 2.0 driver) | Default-location registry values of `lfsvc` |
-| Appears to Windows as | A physical GPS receiver | The system default location |
-| Takes priority over Wi-Fi / IP location | Yes | No — used only when no other source is available |
-| Requires driver | Yes | No |
-| Requires Test Signing + Secure Boot off | Yes | No |
-| Command | `sarab set` / `enable` / `gui` | `sarab simple` |
+These describe implemented code paths, **not a certification of behavior on every Windows installation**. Read [limitations and troubleshooting](docs/USAGE.md#limitations-and-troubleshooting) before reporting unexpected results.
 
-## Architecture
+## Requirements and safety
 
-```mermaid
-flowchart TD
-    GUI["Web / GUI Control Dashboard (MUI + Leaflet)"]
-    CLI["sarab.exe (Rust CLI & Embedded Server)"]
-    GUI <--> |"REST API / WebSocket"| CLI
-    CLI -- "Advanced: set / enable / gui" --> REG1["HKLM\...\SarabGnss\Parameters"]
-    CLI -- "Simple: simple" --> REG2["HKLM\...\lfsvc\Service\Configuration"]
-    REG1 --> DRV["SarabGnss.dll (UMDF 2.0) in WUDFHost.exe"]
-    DRV --> LF["Windows Location Service (lfsvc)"]
-    REG2 --> LF
-    LF --> APPS["Applications: Maps, Weather, Browsers, UWP"]
-```
+- Windows 10 (1809 or later) or Windows 11, **x64**.
+- Administrator privileges for driver installation, system-wide registry changes and service administration.
+- Advanced mode's **test-signed driver** requires Windows Test Signing to be active. Enabling it can require disabling Secure Boot and restarting Windows.
+- **Before changing Secure Boot or boot settings, back up the BitLocker/device-encryption recovery key.** These changes can trigger recovery and weaken system protections. Use an isolated test machine or VM where possible.
+- Release driver packages use **test certificates**, not production-trusted driver signing. Do not treat a passing CI build or test signature as evidence of Microsoft production certification.
 
-In short: `sarab.exe` writes the coordinates to the registry. In Advanced Mode the `SarabGnss` driver reads them and reports them to the Windows Location Service (`lfsvc`) as a GNSS sensor. In Simple Mode `lfsvc` reads the default-location values directly. Applications then query `lfsvc` as usual.
+### Choose a mode
 
-Repository layout:
+| | Advanced virtual GNSS | Simple default location |
+| --- | --- | --- |
+| Windows source | UMDF 2.0 virtual sensor | `lfsvc` default-location registry values |
+| Driver installation | Required | Not required |
+| Test Signing | Required for supplied test-signed driver | Not required |
+| Reliability | Depends on location service and application | May be ignored when another provider is available |
+| CLI entry point | `driver install`, `set`, `enable` | `simple` |
 
-```
-sarab/
-├── app/        Rust CLI: CLI parser, embedded HTTP server, driver IPC, installer, reader
-├── driver/     C++ UMDF 2.0 virtual GNSS driver (SarabGnss)
-├── gui/        Modern React 18 + Material-UI (MUI) + Leaflet interactive dashboard
-├── scripts/    Release tooling
-└── .github/    CI workflow (build, test-sign, package)
-```
+## Getting started
 
-## Requirements
+1. Download the latest available archive or installer from [GitHub Releases](https://github.com/TheMRVX/sarab/releases). Check the specific release's notes, assets and SHA256 checksums. **Do not assume every release contains the same artifacts.**
+2. On an authorized Windows test machine, open an elevated terminal. For advanced mode, review [driver installation and Test Signing](docs/INSTALLATION.md) **before** changing firmware or boot configuration.
+3. With a driver installed and running, configure a test fix:
 
-- Windows 10 (1809+) or Windows 11, 64-bit.
-- Administrator privileges (PnP device installation and registry writes).
-- **Advanced Mode only:**
-  - Secure Boot disabled in UEFI/BIOS.
-  - Test Signing enabled (`bcdedit /set testsigning on`), followed by a reboot.
+   ```powershell
+   .\sarab.exe set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
+   .\sarab.exe enable
+   .\sarab.exe status
+   .\sarab.exe read
+   ```
 
-## Installation
+   For a no-driver fallback instead, run:
 
-### 1. Download
+   ```powershell
+   .\sarab.exe simple --lat 35.6997 --lon 51.3380
+   ```
 
-Get the latest `sarab-vX.Y.Z-x64.zip` from [Releases](https://github.com/TheMRVX/sarab/releases) (or from the artifacts of a CI run) and extract it, for example to `C:\Sarab`.
+4. To open the locally hosted dashboard:
 
-### 2. Enable Test Signing (Advanced Mode, one-time)
+   ```powershell
+   .\sarab.exe gui --open
+   ```
 
-Disable Secure Boot in firmware first, then in an elevated terminal:
+   The default binding is `127.0.0.1:8090`. Avoid binding the control API to a publicly accessible network interface.
+
+Use `sarab.exe --help` and `sarab.exe <command> --help` as the authoritative interface for the build you downloaded. See [the CLI and route guide](docs/USAGE.md) for commands and diagnostics.
+
+## Build from source
+
+On Windows, install Rust (stable MSVC toolchain), Visual Studio 2022 C++ build tools, a compatible Windows SDK/WDK, Node.js and npm.
 
 ```powershell
-bcdedit /set testsigning on
-shutdown /r /t 0
+cd gui
+npm ci
+npm run build
+cd ..\app
+cargo fmt --check
+cargo clippy --locked -- -D warnings
+cargo test --locked
+cargo build --release --locked
 ```
 
-> [!CAUTION]
-> **BitLocker:** changing boot configuration or Secure Boot state can make Windows ask for your 48-digit recovery key at the next boot. Make sure you have it ([account.microsoft.com/devices/recoverykey](https://account.microsoft.com/devices/recoverykey)), or suspend protection for one reboot:
->
-> ```cmd
-> manage-bde -protectors -disable C: -RebootCount 1
-> ```
+Build `driver/SarabGnss.vcxproj` as **Release / x64** with the Windows Driver Kit. Driver packaging and test signing are separate steps; see [BUILDING.md](docs/BUILDING.md). The embedded dashboard is compiled from `gui/dist` when building the Rust application.
 
-### 3. Allow Location Access
+## Project layout
 
-Open **Settings → Privacy & security → Location** and make sure both are on:
+| Path | Purpose |
+| --- | --- |
+| [`app/`](app/) | Rust CLI, local control server, route engine and system integration |
+| [`driver/`](driver/) | C++ UMDF 2.0 virtual GNSS driver and INF |
+| [`gui/`](gui/) | React/TypeScript dashboard and production assets |
+| [`installer/`](installer/) | Inno Setup Windows installer definition |
+| [`scripts/`](scripts/) | Release helper tooling |
+| [`.github/workflows/`](.github/workflows/) | CI and release automation |
+| [`docs/`](docs/) | Installation, usage, development and support documentation |
 
-- **Location services**
-- **Let desktop apps access your location**
+## Documentation
 
-### 4. Install the Driver
-
-From an elevated prompt in the extracted folder:
-
-```cmd
-sarab.exe driver install
-```
-
-This imports the test certificate into the `Root` and `TrustedPublisher` stores, creates the `Root\SarabGnss` device node via SetupAPI, and installs and starts the driver. **Sarab Virtual GNSS** should now appear under *Sensors* in Device Manager. Use `--inf <path>` to point to a `SarabGnss.inf` outside the current directory.
-
-Verify the installation right away:
-
-```cmd
-sarab.exe status
-```
-
-> Driver installation failing or the device showing an error (usually an unsigned-driver problem caused by inactive Test Signing)? See [Troubleshooting](#troubleshooting).
-
-## Usage
-
-```cmd
-:: Set coordinates (example: Azadi Tower, Tehran)
-sarab.exe set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
-
-:: Start providing the fix
-sarab.exe enable
-
-:: Check driver and service state
-sarab.exe status
-
-:: Read back what Windows actually reports
-sarab.exe read
-```
-
-To confirm from an application, open Windows Maps or visit [BrowserLeaks Geolocation](https://browserleaks.com/geo) in Edge or Chrome.
-
-### Web Control Dashboard & Interactive Map (GUI)
-
-Launch the interactive dark-themed Material-UI dashboard:
-
-```cmd
-sarab.exe gui
-```
-*(or `sarab.exe web --port 8090`)*
-
-Features:
-- **Interactive Map:** Click anywhere or drag the target pin on high-contrast OpenStreetMap dark tiles (100% free, zero API key required) to spoof coordinates instantly.
-- **Natural GPS Drift & Jitter:** 1Hz Gauss-Markov Ornstein-Uhlenbeck process mimics physical receiver tracking-loop errors, dynamic HDOP/VDOP jitter, and elevation-dependent SNR variations. Includes live 2D scatter radar in the dashboard.
-- **Smart Road Routing (OSRM) & GPX Engine:** Snap paths to real roads and highways via free Open Source Routing Machine (OSRM) or import recorded GPX track files from Strava, Garmin, and Google Maps.
-- **Headless Server Kinematics:** 1Hz background simulation engine calculating Course Over Ground (heading $0^\circ - 360^\circ$) and velocity with realistic cornering deceleration. Survives browser tab closure.
-- **GNSS Constellation Telemetry:** Real-time satellite monitor with anti-spoofing stealth safeguards (elevation-dependent SNR spread between 28–44 dB-Hz avoiding intrusion detection).
-- **Location Presets & Custom Bookmarks:** Instant teleportation to major cities (Tehran, Isfahan, Shiraz, Dubai, Tokyo, London, New York) or custom saved pins in `localStorage`.
-- **System & Fix Verification:** Verify live fixes reported by `Windows.Devices.Geolocation` and audit Test Signing / BitLocker status in real time.
-
-### Command Reference
-
-| Command | Description |
-|---|---|
-| `gui` | Launch interactive Material-UI web control suite |
-| `web` | Alias for `gui` (configurable via `-p, --port` and `-H, --host`) |
-| `route play` | Play a `.gpx` route file headlessly with simulated kinematics (`--speed`, `--loop`) |
-| `route status`| Query active route telemetry and progress |
-| `route stop` | Terminate any active route simulation |
-| `set` | Set spoof coordinates via CLI |
-| `enable` | Start providing the spoofed fix |
-| `disable` | Stop providing fixes |
-| `status` | Show system state, driver status and active coordinates |
-| `read` | Query live coordinates from `Windows.Devices.Geolocation` |
-| `driver install [--inf <path>]` | Install the virtual GNSS driver |
-| `driver uninstall` | Remove the device and driver package |
-| `simple` | Configure Simple Mode (no driver) |
-
-**`set` options**
-
-| Option | Description | Default | Valid range |
-|---|---|---|---|
-| `--lat` | Latitude (decimal degrees) | required | −90 … 90 |
-| `--lon` | Longitude (decimal degrees) | required | −180 … 180 |
-| `--alt` | Altitude (meters) | `0.0` | — |
-| `-c, --acc` | Horizontal accuracy (meters) | `5.0` | > 0 |
-| `--drift` | Enable/disable natural Gauss-Markov GPS drift | `true` | flag (`--drift` / `--no-drift`) |
-| `--drift-radius` | Mean-reverting 1σ wander radius (meters) | `1.2` | 0.0 … 50.0 |
-
-> Run `sarab.exe <command> --help` for the authoritative option list of your build.
-
-### Simple Mode
-
-If you cannot enable Test Signing, set only the system default location:
-
-```cmd
-sarab.exe simple --lat 35.6997 --lon 51.3380
-```
-
-This writes `DefaultLatitude` / `DefaultLongitude` under `HKLM\System\CurrentControlSet\Services\lfsvc\Service\Configuration` and restarts `lfsvc`. Windows uses this only when no Wi-Fi, cellular or GPS source is available, so many applications will still show a different position.
-
-### Configuration
-
-The CLI stores its settings in `%APPDATA%\Sarab\config.toml`:
-
-```toml
-lat = 35.6997
-lon = 51.3380
-alt = 1200.0
-acc = 5.0
-enabled = true
-```
-
-## Building from Source
-
-**Prerequisites**
-
-- Rust toolchain (stable, MSVC target)
-- Visual Studio 2022 with *Desktop development with C++*
-- Windows Driver Kit (WDK) matching your Windows SDK
-
-**CLI**
-
-```cmd
-cd app
-cargo build --release
-cargo test
-```
-
-**Driver**
-
-Open `driver/SarabGnss.vcxproj` in Visual Studio (Release, x64) and build. The resulting package must be signed; for local use, a self-signed test certificate works with Test Signing enabled.
-
-The [CI workflow](.github/workflows/ci.yml) builds both components, generates a test certificate, signs the driver package and publishes the release archive.
-
-## Uninstallation
-
-Restore the system to its original state:
-
-```cmd
-sarab.exe disable
-sarab.exe driver uninstall
-bcdedit /set testsigning off
-shutdown /r /t 0
-```
-
-Re-enable Secure Boot in firmware afterwards if you wish. If you used Simple Mode, remove the `DefaultLatitude` and `DefaultLongitude` values from the `lfsvc` registry key listed above.
-
-## Troubleshooting
-
-| Symptom | Likely cause / fix |
-|---|---|
-| `bcdedit` fails with a Secure Boot message | Disable Secure Boot in UEFI, then retry. |
-| Driver installs but device shows an error | Test Signing is not active; verify with `bcdedit /enum` and reboot. |
-| `sarab read` returns no position | Location services or desktop-app access is off; see [Allow Location Access](#3-allow-location-access). |
-| Apps still show a different location | Browsers may cache or prefer Wi-Fi positioning; restart the app, or check `sarab status`. |
-| Watermark "Test Mode" on desktop | Expected while Test Signing is on. |
-
-## FAQ
-
-**Does this work on Windows on ARM or 32-bit?** Not currently; only x64 is built.
-
-**Does it affect other devices on my network or my IP address?** No. It only changes what the local Windows Location platform reports.
-
-**Is it safe to leave Test Signing on?** It lowers a boot-time security guarantee. Turn it off when you no longer need the driver.
+- [Installation, test certificates and recovery](docs/INSTALLATION.md)
+- [CLI commands, configuration and troubleshooting](docs/USAGE.md)
+- [Build, test and development instructions](docs/BUILDING.md)
+- [Documentation index](docs/README.md)
+- [Contributing and pull-request guidelines](CONTRIBUTING.md)
+- [Security policy](SECURITY.md) · [Support](SUPPORT.md) · [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Third-party notices](THIRD-PARTY-NOTICES.md)
 
 ## Contributing
 
-Issues and pull requests are welcome. Before submitting a change, please run `cargo fmt`, `cargo clippy` and `cargo test` in `app/`, and describe how you tested any driver changes.
+Bug reports, documentation improvements and focused pull requests are welcome. Search [existing issues](https://github.com/TheMRVX/sarab/issues) first, use an issue template where applicable, and read [CONTRIBUTING.md](CONTRIBUTING.md) before changing code. **Do not report exploitable security issues in public issues**; follow [SECURITY.md](SECURITY.md).
 
 ## License
-Dual-licensed under either of:
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
-- MIT license ([LICENSE-MIT](LICENSE-MIT) or http://opensource.org/licenses/MIT)
 
-at your option.
+Sarab is offered under **MIT OR Apache-2.0**, at your option: [MIT](LICENSE-MIT) and [Apache-2.0](LICENSE-APACHE). Review [NOTICE](NOTICE) and [third-party software notices](THIRD-PARTY-NOTICES.md) for additional attribution requirements.
 
-### Contribution
-Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in the work by you, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
+Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in Sarab are dual-licensed under the same terms without additional terms or conditions.
