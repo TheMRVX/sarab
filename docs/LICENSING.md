@@ -1,22 +1,21 @@
 # Licensing and redistribution
 
-Sarab's current source is offered under **MIT OR Apache-2.0**, at the recipient's option. The complete license texts are in [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE). The root [LICENSE](../LICENSE) explains this dual-license choice. The [NOTICE](../NOTICE) contains attribution information; it does not change the license.
+Sarab source is offered under **MIT OR Apache-2.0**, at your option, as stated in `app/Cargo.toml` and `gui/package.json`. Read the full texts in [LICENSE-MIT](../LICENSE-MIT) and [LICENSE-APACHE](../LICENSE-APACHE).
 
-## Redistribution checklist
+This repository uses the two-file dual-license convention. No custom root LICENSE is required. The [NOTICE](../NOTICE) is intentionally minimal because Apache-2.0 §4(d) can require preservation of its attribution notices in derivative distributions.
 
-- Include both license texts and the dual-license explanation when distributing the current source or binaries. Retain applicable copyright notices.
-- Under Apache-2.0, follow section 4, including prominent notices on modified files and retention of applicable NOTICE content in derivative distributions.
-- Third-party dependencies, embedded resources, icons, map assets and build tools may have **different** terms. Inspect exact resolved versions and their original license files; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md) is a starting inventory, **not** a complete legal bill of materials.
-- Review the actual ZIP and installer contents on every release. Do not assume source-only dev dependencies are redistributed, or that all binary dependencies appear in direct-dependency manifests.
-- This policy describes the current source tree. **Historical releases retain the licenses under which they were published**; do not retroactively describe v1.0.0 or other prior artifacts as having newly added terms.
-- Contributors must own or have permission to submit their work under both project licenses; [CONTRIBUTING.md](../CONTRIBUTING.md) documents the default contribution terms.
+## Contributions
+
+Unless explicitly stated otherwise, any contribution intentionally submitted for inclusion in Sarab by you, as defined in Apache-2.0, shall be dual licensed under MIT OR Apache-2.0, without any additional terms or conditions. This does not override separate contributor agreements or rights of third parties.
+
+## Distribution
+
+Preserve the copyright and license terms of Sarab and **all applicable redistributed third-party components**. The [third-party notices](../THIRD-PARTY-NOTICES.md) are not a verified complete dependency inventory. In particular, Leaflet's BSD-2-Clause terms require reproduction of its copyright, conditions and disclaimer in documentation and/or other materials accompanying binary redistribution. Do not remove those notices.
+
+Use exact lockfile-resolved dependency versions to audit the release with `cargo about` or `cargo deny`, and a Node dependency-license checker. Review transitive packages, bundled fonts/icons and map-tile attribution. A tool-generated list must be manually checked against actual shipped artifacts.
+
+Existing releases keep their original license grants; changes to repository documents do not retroactively alter them.
 
 ## Release verification
 
-The release workflow copies the full license texts, LICENSE explanation, NOTICE and third-party notices into the ZIP and the Inno Setup payload. Before publication, inspect the produced artifacts, compare dependency lockfiles and license data, and resolve any missing attribution. No claim of complete third-party compliance is made without an audited software bill of materials.
-
-## Upstream/downstream projects
-
-Independent projects using Sarab may choose the terms of either applicable project license for the version they received, while honoring third-party licenses and applicable attribution conditions. Independence and compatibility do not imply official endorsement.
-
-This guide is technical compliance documentation, not legal advice.
+Before publishing a release, confirm the archive and installer include `LICENSE-MIT`, `LICENSE-APACHE`, `NOTICE` and complete third-party license notices, then inspect the built outputs. CI compilation alone is insufficient to prove redistribution compliance.

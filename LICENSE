@@ -1,10 +1,3 @@
-Sarab is dual-licensed under either of the following licenses, at your option:
+Sarab is dual-licensed under MIT OR Apache-2.0.
 
-  * MIT License (LICENSE-MIT)
-  * Apache License, Version 2.0 (LICENSE-APACHE)
-
-The full, unmodified license texts are provided in the files above.
-Copyright 2026 TheMRVX and contributors.
-
-Third-party components and assets retain their own licenses. See
-THIRD-PARTY-NOTICES.md and the relevant dependency distributions.
+See LICENSE-MIT and LICENSE-APACHE for the full license texts.
