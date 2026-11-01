@@ -9,7 +9,7 @@ on:
       - 'gui/**'
       - '.github/workflows/ci.yml'
   pull_request:
-    branches: [ "main" ]
+    branches: [ "main", "docs/20-community-documentation" ]
     paths:
       - 'app/**'
       - 'driver/**'
