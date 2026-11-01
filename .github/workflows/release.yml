@@ -1,16 +1,8 @@
 name: Release
 
 on:
-  pull_request:
-    paths:
-      - 'app/**'
-      - 'driver/**'
-      - 'gui/**'
-      - 'installer/**'
-      - 'scripts/generate_third_party_notices.py'
-      - 'scripts/test_legal_policy.py'
-      - 'THIRD-PARTY-NOTICES.md'
   push:
+    branches: [legal/license-compliance-audit]
     tags: [ "v*" ]
   workflow_dispatch:
     inputs:
@@ -186,7 +178,6 @@ jobs:
         shell: pwsh
         env:
           INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
-          INPUT_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           $packageDir = "release_package"
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
@@ -238,13 +229,12 @@ jobs:
           $versionMatch = [regex]::Match($cargoToml, '(?m)^version\s*=\s*"([^"]+)"')
           if (-not $versionMatch.Success) { throw "Could not read package version from app\Cargo.toml" }
           $tag = "v" + $versionMatch.Groups[1].Value
-          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
-              if (-not $env:INPUT_PR_NUMBER) { throw "Missing pull request number for release dry-run" }
-              $tag = "$tag-pr.$env:INPUT_PR_NUMBER"
-          } elseif ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
               $tag = $env:GITHUB_REF_NAME
           } elseif ($env:INPUT_RELEASE_TAG) {
               $tag = $env:INPUT_RELEASE_TAG
+          } elseif ($env:GITHUB_REF_NAME -eq 'legal/license-compliance-audit') {
+              $tag = "$tag-pr.$env:GITHUB_RUN_NUMBER"
           }
 
           # Validate tag format (SemVer with leading 'v') before using it anywhere
