@@ -62,7 +62,7 @@ jobs:
 
       - name: Verify Web GUI build consistency
         run: |
-          git diff --exit-code -- gui/dist
+          git diff --exit-code --ignore-space-at-eol -- gui/dist
 
       - name: Audit dependency licenses and generate notices
         shell: pwsh
