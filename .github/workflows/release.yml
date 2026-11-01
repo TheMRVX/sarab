@@ -2,7 +2,6 @@ name: Release
 
 on:
   pull_request:
-    branches: [main, docs/20-community-documentation]
     paths:
       - 'app/**'
       - 'driver/**'
@@ -11,8 +10,6 @@ on:
       - 'scripts/generate_third_party_notices.py'
       - 'scripts/test_legal_policy.py'
       - 'THIRD-PARTY-NOTICES.md'
-      - '.github/workflows/release.yml'
-      - '.github/workflows/legal-audit.yml'
   push:
     tags: [ "v*" ]
   workflow_dispatch:
