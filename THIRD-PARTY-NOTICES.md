@@ -8,8 +8,8 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256 (LF-normalized): bfec585a10f8af00b65a414a58765e95257cacd39f8685cabc0e0cdba5eb0a2e
-- package-lock.json SHA-256 (LF-normalized): 2386fceb9098027fa49f3816ead91194bc89a65c32c162e9a638f8ce19f42e7e
+- Cargo.lock SHA-256 (LF-normalized): a534daec5fc5b7fb805f8113c3c3c67c509ab24825c4b1a9cb3490d629eeff4d
+- package-lock.json SHA-256 (LF-normalized): 0264cd2faf181cceddc913f8ea2402dc4968d34e90267c066befef9770ed573f
 
 ## Rust dependency notices
 
@@ -1571,7 +1571,7 @@ DEALINGS IN THE SOFTWARE.
 ## MIT License
 
 Used by:
-- rustls@0.23.45
+- rustls@0.23.46
 
 ~~~~text
 Copyright (c) 2016 Joseph Birr-Pixton <jpixton@gmail.com>
