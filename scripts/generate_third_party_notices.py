@@ -68,6 +68,8 @@ def generate(rust: Path, frontend_json: Path, repo_root: Path) -> str:
         if not path_str:
             raise ValueError(f"Missing licenseFile for {package_id}")
         source = Path(path_str).resolve()
+        if not re.match(r"(?i)^(licen[sc]e|copying|notice|unlicense)", source.name):
+            raise ValueError(f"licenseFile for {package_id} is not a license file: {source.name}")
         node_modules = (repo_root / "gui/node_modules").resolve()
         if not source.is_file() or not source.is_relative_to(node_modules):
             raise ValueError(f"License file missing or outside installed frontend dependencies: {package_id}")
@@ -107,7 +109,8 @@ def main() -> None:
     root = Path(__file__).resolve().parents[1]
     report = generate(args.rust, args.frontend_json, root)
     args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(report, encoding="utf-8")
+    # Write bytes so Windows does not translate LF to CRLF.
+    args.output.write_bytes(report.encode("utf-8"))
     print(f"Notices generated: {args.output} ({len(report)} characters)")
 
 

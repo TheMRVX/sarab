@@ -14,11 +14,12 @@ import MyLocationIcon from '@mui/icons-material/MyLocation';
 import L from 'leaflet';
 import { Waypoint } from '../types';
 
-// Custom modern SVG Pin Icon for target position
 // Explicit opt-in: select a provider that permits distributed desktop use.
 const geocodingSearchUrl = import.meta.env.VITE_GEOCODING_SEARCH_URL?.trim() || '';
 const SEARCH_INTERVAL_MS = 1100;
 let lastGeocodingRequestAt = 0;
+
+// Custom modern SVG Pin Icon for target position
 const createCustomIcon = (color = '#00e5ff') => {
   return L.divIcon({
     className: 'custom-pin-marker',
@@ -225,71 +226,73 @@ export const MapView: React.FC<MapViewProps> = ({
         border: '1px solid rgba(255, 255, 255, 0.08)',
       }}
     >
-      {/* Search Bar Overlay */}
-      <Box
-        component="form"
-        onSubmit={handleSearch}
-        sx={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          right: { xs: 16, sm: 'auto' },
-          zIndex: 1000,
-          width: { sm: 340 },
-        }}
-      >
-        <Paper
-          elevation={4}
+      {/* Search Bar Overlay: shown only when a geocoding provider is configured at build time. */}
+      {geocodingSearchUrl && (
+        <Box
+          component="form"
+          onSubmit={handleSearch}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            p: '2px 4px',
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            border: '1px solid rgba(0, 229, 255, 0.25)',
+            position: 'absolute',
+            top: 16,
+            left: 16,
+            right: { xs: 16, sm: 'auto' },
+            zIndex: 1000,
+            width: { sm: 340 },
           }}
         >
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Search city, address, or landmark..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            variant="standard"
-            InputProps={{
-              disableUnderline: true,
-              sx: { px: 1, fontSize: '0.9rem' },
-              endAdornment: (
-                <InputAdornment position="end">
-                  {isSearching ? (
-                    <CircularProgress size={20} color="primary" />
-                  ) : (
-                    <IconButton size="small" onClick={() => handleSearch()} color="primary">
-                      <SearchIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Paper>
-        {searchError && (
-          <Typography
-            variant="caption"
+          <Paper
+            elevation={4}
             sx={{
-              display: 'block',
-              mt: 0.5,
-              ml: 1,
-              color: 'error.main',
-              bgcolor: 'rgba(0,0,0,0.8)',
-              px: 1,
-              borderRadius: 1,
+              display: 'flex',
+              alignItems: 'center',
+              p: '2px 4px',
+              bgcolor: 'background.paper',
+              borderRadius: 2,
+              border: '1px solid rgba(0, 229, 255, 0.25)',
             }}
           >
-            {searchError}
-          </Typography>
-        )}
-      </Box>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search city, address, or landmark..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              variant="standard"
+              InputProps={{
+                disableUnderline: true,
+                sx: { px: 1, fontSize: '0.9rem' },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {isSearching ? (
+                      <CircularProgress size={20} color="primary" />
+                    ) : (
+                      <IconButton size="small" onClick={() => handleSearch()} color="primary">
+                        <SearchIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Paper>
+          {searchError && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                mt: 0.5,
+                ml: 1,
+                color: 'error.main',
+                bgcolor: 'rgba(0,0,0,0.8)',
+                px: 1,
+                borderRadius: 1,
+              }}
+            >
+              {searchError}
+            </Typography>
+          )}
+        </Box>
+      )}
 
       {/* Recenter Quick Button */}
       <Box

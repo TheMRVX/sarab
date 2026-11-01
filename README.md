@@ -33,7 +33,7 @@ Use Sarab only on systems you own or are authorized to administer, and respect t
 - **Virtual GNSS (advanced mode):** a UMDF 2.0 sensor driver supplies configured latitude, longitude, altitude, and accuracy through the Windows Location platform.
 - **Simple mode:** updates the Windows system default location without installing the virtual driver; this is a fallback, not an equivalent replacement.
 - **CLI and dashboard:** a Rust command-line tool and a locally served React / Material UI / Leaflet interface.
-- **Route simulation:** import GPX tracks and replay movement; a road-routing planning feature can use an external OSRM service.
+- **Route simulation:** import GPX tracks and replay movement. The optional "Snap to Roads" action sends route coordinates to the public OSRM demo server (`router.project-osrm.org`); see the [licensing notes](docs/LICENSING.md#road-snapping-osrm).
 - **Diagnostics:** inspect driver status and query location values returned by the Windows location API.
 - **Optional background service:** manage the local server with Windows Service Control Manager commands.
 
@@ -133,4 +133,4 @@ Bug reports, documentation improvements, and focused pull requests are welcome. 
 
 Sarab is offered under **[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)**, at your option. Review [NOTICE](NOTICE) and [third-party software notices](THIRD-PARTY-NOTICES.md) for additional attribution requirements.
 
-Unless explicitly stated otherwise, contributions intentionally submitted for inclusion in Sarab are dual-licensed under the same terms without additional terms or conditions.
+Unless you explicitly state otherwise, any contribution intentionally submitted for inclusion in Sarab by you, as defined in the Apache-2.0 license, shall be dual-licensed as above, without any additional terms or conditions. See [docs/LICENSING.md](docs/LICENSING.md) for redistribution guidance.
