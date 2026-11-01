@@ -101,6 +101,7 @@ assert any(asset.name in index_html for asset in dist_assets), "index.html does 
 
 build_rs = (repo / "app/build.rs").read_text(encoding="utf-8")
 assert "validate_embedded_frontend" in build_rs
+assert "SARAB_STRICT_EMBED" in build_rs
 assert re.search(r"nominatim\.openstreetmap\.org", build_rs) is not None
 
 assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release

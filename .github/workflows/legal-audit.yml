@@ -38,6 +38,7 @@ jobs:
         run: |
           python3 scripts/test_legal_policy.py
           python3 scripts/check_spdx.py
+          python3 scripts/test_regression.py
 
       - name: Restore license tool build cache
         uses: actions/cache@v4

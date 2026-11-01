@@ -32,6 +32,7 @@ fn validate_embedded_frontend() {
 
     println!("cargo:rerun-if-changed={}", dist_dir.display());
     println!("cargo:rerun-if-changed={}", src_dir.display());
+    println!("cargo:rerun-if-env-changed=SARAB_STRICT_EMBED");
 
     let index_html = dist_dir.join("index.html");
     if !index_html.exists() {
@@ -85,11 +86,22 @@ fn validate_embedded_frontend() {
             let mut newer_src: Option<String> = None;
             check_mtime_recursive(&src_dir, dist_mtime, &mut newer_src);
             if let Some(src_file) = newer_src {
-                println!(
-                    "cargo:warning=Frontend source '{}' is newer than 'gui/dist/index.html'. \
-                     Run 'cd gui && npm run build' to update embedded assets.",
-                    src_file
-                );
+                let is_strict = std::env::var("SARAB_STRICT_EMBED")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
+                if is_strict {
+                    panic!(
+                        "Build integrity violation: frontend source '{}' is newer than 'gui/dist/index.html'. \
+                         Run 'cd gui && npm run build' to update embedded assets.",
+                        src_file
+                    );
+                } else {
+                    println!(
+                        "cargo:warning=Frontend source '{}' is newer than 'gui/dist/index.html'. \
+                         Run 'cd gui && npm run build' to update embedded assets.",
+                        src_file
+                    );
+                }
             }
         }
     }
