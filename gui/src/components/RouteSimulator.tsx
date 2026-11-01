@@ -157,7 +157,29 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
   const [isSnapping, setIsSnapping] = useState<boolean>(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
+  const [osrmEnabled, setOsrmEnabled] = useState(false);
+  const [osrmStatusLoaded, setOsrmStatusLoaded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Road snapping is opt-in at the local server level; no endpoint is used by default.
+  useEffect(() => {
+    let active = true;
+    apiFetch('/api/route/osrm/status')
+      .then(async (res) => {
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setOsrmEnabled(data.enabled === true);
+      })
+      .catch(() => {
+        if (active) setOsrmEnabled(false);
+      })
+      .finally(() => {
+        if (active) setOsrmStatusLoaded(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // Poll server-side route status every 1000ms to stay synchronized headlessly
   useEffect(() => {
@@ -294,6 +316,13 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
   };
 
   const handleSnapToRoads = async () => {
+    if (!osrmEnabled) {
+      setStatusMessage('Road snapping is disabled. Configure SARAB_OSRM_BASE_URL and restart Sarab to enable it.');
+      return;
+    }
+    if (!window.confirm('Sarab will send all route waypoint coordinates to the configured OSRM-compatible routing service. The provider may log these coordinates. Continue?')) {
+      return;
+    }
     if (waypoints.length < 2) {
       setStatusMessage('Add at least 2 waypoints before snapping to roads.');
       return;
@@ -450,14 +479,14 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
       {/* Smart Routing & GPX Action Buttons */}
       <Box sx={{ display: 'flex', gap: 1 }}>
-        <Tooltip title="Snap waypoints to real streets and roads via OSRM">
+        <Tooltip title={osrmEnabled ? "Send route waypoints to the configured OSRM-compatible service (coordinates leave this device)" : "Road snapping is disabled. Configure SARAB_OSRM_BASE_URL and restart Sarab."}>
           <Button
             size="small"
             variant="outlined"
             color="primary"
             startIcon={<AltRouteIcon />}
             onClick={handleSnapToRoads}
-            disabled={waypoints.length < 2 || isSnapping}
+            disabled={waypoints.length < 2 || isSnapping || !osrmStatusLoaded || !osrmEnabled}
             sx={{ flex: 1 }}
           >
             {isSnapping ? 'Snapping...' : 'Snap to Roads'}
@@ -484,6 +513,16 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           onChange={handleFileUpload}
         />
       </Box>
+      {osrmStatusLoaded && !osrmEnabled && (
+        <Alert severity="info" sx={{ py: 0.2, fontSize: '0.78rem' }}>
+          Road snapping is disabled by default. Set SARAB_OSRM_BASE_URL to an authorized OSRM-compatible endpoint and restart Sarab to enable it.
+        </Alert>
+      )}
+      {osrmEnabled && (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          Routing engine: OSRM · Map data: © OpenStreetMap contributors
+        </Typography>
+      )}
 
       {/* Status banner */}
       {statusMessage && (
