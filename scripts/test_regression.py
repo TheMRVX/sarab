@@ -168,18 +168,20 @@ def test_local_web_authentication_boundary():
         stderr=subprocess.DEVNULL,
     )
     try:
-        import urllib.request
-        import urllib.error
-        base_url = f"http://127.0.0.1:{test_port}"
+        import http.client
+        test_port = 18095
+        conn = http.client.HTTPConnection("127.0.0.1", test_port, timeout=5)
         started = False
         for _ in range(30):
             time.sleep(0.15)
             try:
-                urllib.request.urlopen(f"{base_url}/api/auth/status", timeout=1)
+                conn.request("GET", "/api/auth/status")
+                resp = conn.getresponse()
+                resp.read()
                 started = True
                 break
-            except Exception:
-                pass
+            except (OSError, http.client.HTTPException):
+                continue
         assert started, "Test server failed to start within timeout"
 
         # 6a. Query session token via CLI 'sarab token --raw'
@@ -188,72 +190,65 @@ def test_local_web_authentication_boundary():
         assert len(valid_token) == 32, f"Expected 32-character hex token from CLI, got: {valid_token}"
 
         # 6b. Unauthenticated GET / must not contain token
-        req = urllib.request.Request(f"{base_url}/")
-        with urllib.request.urlopen(req) as resp:
-            html = resp.read().decode("utf-8")
-            assert "sarab-token" not in html, "Unauthenticated GET / leaked sarab-token meta tag"
-            assert "Set-Cookie" not in str(resp.headers), "Unauthenticated GET / leaked session cookie"
+        conn.request("GET", "/")
+        resp = conn.getresponse()
+        html = resp.read().decode("utf-8")
+        assert "sarab-token" not in html, "Unauthenticated GET / leaked sarab-token meta tag"
+        cookie_hdr = resp.getheader("Set-Cookie")
+        assert cookie_hdr is None or "sarab_session" not in cookie_hdr, "Unauthenticated GET / leaked session cookie"
 
         # 6c. Unauthenticated GET /api/auth/status returns {"authenticated": false}
-        with urllib.request.urlopen(f"{base_url}/api/auth/status") as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            assert data.get("authenticated") is False, "Unauthenticated /api/auth/status returned true"
+        conn.request("GET", "/api/auth/status")
+        resp = conn.getresponse()
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data.get("authenticated") is False, "Unauthenticated /api/auth/status returned true"
 
         # 6d. Unauthenticated GET /api/config returns 401 Unauthorized
-        try:
-            urllib.request.urlopen(f"{base_url}/api/config")
-            assert False, "Unauthenticated /api/config unexpectedly returned 200 OK"
-        except urllib.error.HTTPError as e:
-            assert e.code == 401, f"Expected 401 Unauthorized for /api/config, got {e.code}"
+        conn.request("GET", "/api/config")
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 401, f"Expected 401 Unauthorized for /api/config, got {resp.status}"
 
         # 6e. Invalid token POST /api/auth/verify returns 401
-        verify_req = urllib.request.Request(
-            f"{base_url}/api/auth/verify",
-            data=json.dumps({"token": "wrong_token_12345"}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        try:
-            urllib.request.urlopen(verify_req)
-            assert False, "Invalid token verify unexpectedly succeeded"
-        except urllib.error.HTTPError as e:
-            assert e.code == 401, f"Expected 401 for invalid verify, got {e.code}"
+        invalid_body = json.dumps({"token": "wrong_token_12345"}).encode("utf-8")
+        conn.request("POST", "/api/auth/verify", body=invalid_body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 401, f"Expected 401 for invalid verify, got {resp.status}"
 
         # 6f. Valid token POST /api/auth/verify returns 200 with Set-Cookie
-        verify_valid_req = urllib.request.Request(
-            f"{base_url}/api/auth/verify",
-            data=json.dumps({"token": valid_token}).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-        )
-        with urllib.request.urlopen(verify_valid_req) as resp:
-            assert resp.status == 200
-            cookie = resp.headers.get("Set-Cookie", "")
-            assert "sarab_session=" in cookie
-            assert "HttpOnly" in cookie
-            assert "SameSite=Strict" in cookie
+        valid_body = json.dumps({"token": valid_token}).encode("utf-8")
+        conn.request("POST", "/api/auth/verify", body=valid_body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 200
+        cookie = resp.getheader("Set-Cookie") or ""
+        assert "sarab_session=" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=Strict" in cookie
 
         # 6g. Authenticated GET /?token=<valid_token> returns meta tag and Set-Cookie
-        with urllib.request.urlopen(f"{base_url}/?token={valid_token}") as resp:
-            auth_html = resp.read().decode("utf-8")
-            assert f'<meta name="sarab-token" content="{valid_token}">' in auth_html
-            auth_cookie = resp.headers.get("Set-Cookie", "")
-            assert f"sarab_session={valid_token}" in auth_cookie
+        conn.request("GET", f"/?token={valid_token}")
+        resp = conn.getresponse()
+        auth_html = resp.read().decode("utf-8")
+        assert f'<meta name="sarab-token" content="{valid_token}">' in auth_html
+        auth_cookie = resp.getheader("Set-Cookie") or ""
+        assert f"sarab_session={valid_token}" in auth_cookie
 
         # 6h. Authenticated GET /api/config with X-Sarab-Token header succeeds
-        cfg_req = urllib.request.Request(
-            f"{base_url}/api/config",
-            headers={"X-Sarab-Token": valid_token},
-        )
-        with urllib.request.urlopen(cfg_req) as resp:
-            assert resp.status == 200
-            cfg_data = json.loads(resp.read().decode("utf-8"))
-            assert "latitude" in cfg_data
+        conn.request("GET", "/api/config", headers={"X-Sarab-Token": valid_token})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        cfg_data = json.loads(resp.read().decode("utf-8"))
+        assert "latitude" in cfg_data
 
+        conn.close()
         print("  [+] Live HTTP end-to-end authentication boundary verified (unauthenticated denied, token bootstrap verified).")
     finally:
         server_proc.terminate()
         try:
             server_proc.wait(timeout=3)
-        except Exception:
+        except (subprocess.TimeoutExpired, OSError):
             server_proc.kill()
 
 

@@ -41,7 +41,7 @@ function createClient(baseUrl) {
   let sessionToken = '';
 
   const apiFetch = async (endpoint, init = {}) => {
-    const headers = { ...(init.headers || {}) };
+    const headers = { ...init.headers };
     if (sessionToken) headers['X-Sarab-Token'] = sessionToken;
     return fetch(`${baseUrl}${endpoint}`, { ...init, headers });
   };
