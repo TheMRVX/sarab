@@ -44,12 +44,23 @@ def test_embedded_frontend_freshness():
     res = run(["cargo", "check"], cwd=APP_DIR)
     assert res.returncode == 0, "Clean cargo check failed"
 
-    # 2. Non-destructive probe test: create a temporary file in gui/src/
+    # 2. Deterministic content test: touching file timestamps without content changes must not invalidate build
+    main_tsx = GUI_DIR / "src" / "main.tsx"
+    orig_mtime = main_tsx.stat().st_mtime
+    try:
+        os.utime(main_tsx, (orig_mtime - 1000, orig_mtime - 1000))
+        res = run(["cargo", "check"], cwd=APP_DIR)
+        assert res.returncode == 0, "cargo check unexpectedly failed when file timestamps changed without content edits"
+        print("  [+] Timestamp independence verified: content fingerprint is fully deterministic.")
+    finally:
+        os.utime(main_tsx, (orig_mtime, orig_mtime))
+
+    # 3. Non-destructive probe test: create a temporary untracked file in gui/src/
     probe_file = GUI_DIR / "src" / "_integrity_probe.tmp"
     try:
         probe_file.write_text("// temporary integrity probe", encoding="utf-8")
 
-        # 3. Verify cargo check rejects the untracked / un-fingerprinted file by default (exit code 101)
+        # 3a. Verify cargo check rejects untracked / un-fingerprinted source files
         res = run(["cargo", "check"], cwd=APP_DIR, check=False)
         assert res.returncode != 0, "cargo check unexpectedly succeeded with stale frontend assets"
         assert (
@@ -58,19 +69,56 @@ def test_embedded_frontend_freshness():
         ), f"Expected panic message not found in output:\n{res.stderr}"
         print("  [+] Stale asset negative test passed: cargo check rejected stale frontend by default.")
 
-        # 4. Verify SARAB_SKIP_FRONTEND_VERIFY=1 permits bypassing when explicitly requested
+        # 3b. Verify SARAB_SKIP_FRONTEND_VERIFY=1 permits bypassing only in non-release / non-CI builds
         res_skip = run(["cargo", "check"], cwd=APP_DIR, env={"SARAB_SKIP_FRONTEND_VERIFY": "1"})
-        assert res_skip.returncode == 0, "cargo check failed under SARAB_SKIP_FRONTEND_VERIFY=1"
-        print("  [+] Explicit bypass test passed (SARAB_SKIP_FRONTEND_VERIFY=1).")
+        assert res_skip.returncode == 0, "cargo check failed under SARAB_SKIP_FRONTEND_VERIFY=1 in dev profile"
+        print("  [+] Explicit dev bypass test passed (SARAB_SKIP_FRONTEND_VERIFY=1).")
+
+        # 3c. Verify release / CI builds strictly disallow SARAB_SKIP_FRONTEND_VERIFY
+        res_rel_skip = run(
+            ["cargo", "check", "--release"],
+            cwd=APP_DIR,
+            env={"SARAB_SKIP_FRONTEND_VERIFY": "1"},
+            check=False,
+        )
+        assert res_rel_skip.returncode != 0, "cargo check --release unexpectedly allowed SARAB_SKIP_FRONTEND_VERIFY=1"
+        assert (
+            "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_rel_skip.stderr
+            or "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_rel_skip.stdout
+        ), f"Expected release check rejection not found in:\n{res_rel_skip.stderr}"
+        print("  [+] Release profile protection passed: SARAB_SKIP_FRONTEND_VERIFY fail-closed in release profile.")
     finally:
-        # Non-destructive cleanup: ensure temporary probe file is removed
         if probe_file.exists():
             probe_file.unlink()
 
-    # 5. Verify cargo check succeeds again after probe removal
+    # 4. Verify changed build environment variables invalidate integrity
+    res_env = run(["cargo", "check"], cwd=APP_DIR, env={"VITE_DEMO_MODE": "true"}, check=False)
+    assert res_env.returncode != 0, "cargo check unexpectedly succeeded with mismatched VITE environment variables"
+    assert (
+        "Build integrity violation: embedded frontend assets" in res_env.stderr
+        or "Build integrity violation: embedded frontend assets" in res_env.stdout
+    ), f"Expected env mismatch panic not found in:\n{res_env.stderr}"
+    print("  [+] Environment configuration sensitivity passed: altered Vite env vars detected.")
+
+    # 5. Verify tampering with compiled dist output assets is detected
+    dist_index = DIST_DIR / "index.html"
+    orig_dist_index = dist_index.read_text(encoding="utf-8")
+    try:
+        dist_index.write_text(orig_dist_index + "<!-- tamper probe -->", encoding="utf-8")
+        res_tamper = run(["cargo", "check"], cwd=APP_DIR, check=False)
+        assert res_tamper.returncode != 0, "cargo check unexpectedly succeeded with tampered dist assets"
+        assert (
+            "Build integrity violation:" in res_tamper.stderr
+            or "Build integrity violation:" in res_tamper.stdout
+        ), f"Expected dist tamper panic not found in:\n{res_tamper.stderr}"
+        print("  [+] Output asset tampering detection passed: modified dist bytes fail-closed.")
+    finally:
+        dist_index.write_text(orig_dist_index, encoding="utf-8")
+
+    # 6. Verify cargo check succeeds again in clean state
     res = run(["cargo", "check"], cwd=APP_DIR)
-    assert res.returncode == 0, "cargo check failed to recover after probe removal"
-    print("  [+] Non-destructive probe recovery test passed.")
+    assert res.returncode == 0, "cargo check failed to recover after integrity tests"
+    print("  [+] Clean state recovery verified.")
 
 
 def test_dependencies_and_vulnerabilities():
@@ -227,15 +275,68 @@ def test_local_web_authentication_boundary():
         assert "HttpOnly" in cookie
         assert "SameSite=Strict" in cookie
 
-        # 6g. Authenticated GET /?token=<valid_token> returns meta tag and Set-Cookie
+        # 6g. Authenticated GET /?token=<valid_token> returns 100% static HTML (no token meta tag) and Set-Cookie
         conn.request("GET", f"/?token={valid_token}")
         resp = conn.getresponse()
         auth_html = resp.read().decode("utf-8")
-        assert f'<meta name="sarab-token" content="{valid_token}">' in auth_html
+        assert "sarab-token" not in auth_html, "Authenticated GET /?token leaked meta tag into HTML"
         auth_cookie = resp.getheader("Set-Cookie") or ""
         assert f"sarab_session={valid_token}" in auth_cookie
 
-        # 6h. Authenticated GET /api/config with X-Sarab-Token header succeeds
+        # 6h. Same-origin session rehydration via GET /api/auth/session with cookie returns token
+        conn.request("GET", "/api/auth/session", headers={"Cookie": f"sarab_session={valid_token}"})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        sess_data = json.loads(resp.read().decode("utf-8"))
+        assert sess_data.get("authenticated") is True
+        assert sess_data.get("token") == valid_token
+
+        # 6i. Mutating POST /api/config with only ambient cookie (no X-Sarab-Token) must fail with 401
+        cfg_payload = json.dumps({
+            "latitude": 35.6892,
+            "longitude": 51.3890,
+            "altitude": 1200.0,
+            "accuracy": 2.5,
+            "enabled": True,
+            "driftEnabled": True,
+            "driftRadius": 1.2
+        }).encode("utf-8")
+        conn.request("POST", "/api/config", body=cfg_payload, headers={
+            "Content-Type": "application/json",
+            "Cookie": f"sarab_session={valid_token}"
+        })
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 401, f"Expected 401 for cookie-only mutating request, got: {resp.status}"
+
+        # 6j. Mutating POST /api/config with X-Sarab-Token succeeds
+        conn.request("POST", "/api/config", body=cfg_payload, headers={
+            "Content-Type": "application/json",
+            "X-Sarab-Token": valid_token
+        })
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 200, f"Expected 200 for authorized mutating request, got: {resp.status}"
+
+        # 6k. Cross-origin request from foreign localhost port is rejected with 403 Forbidden
+        conn.request("GET", "/api/config", headers={
+            "Origin": "http://127.0.0.1:3000",
+            "X-Sarab-Token": valid_token
+        })
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 403, f"Expected 403 for foreign origin port, got: {resp.status}"
+
+        # 6l. Cross-site request with Sec-Fetch-Site: cross-site is rejected with 403 Forbidden
+        conn.request("GET", "/api/config", headers={
+            "Sec-Fetch-Site": "cross-site",
+            "X-Sarab-Token": valid_token
+        })
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 403, f"Expected 403 for cross-site request, got: {resp.status}"
+
+        # 6m. Authenticated GET /api/config with X-Sarab-Token header succeeds
         conn.request("GET", "/api/config", headers={"X-Sarab-Token": valid_token})
         resp = conn.getresponse()
         assert resp.status == 200
@@ -293,6 +394,21 @@ def test_release_integrity_and_dry_run_safeguards():
     print("  [+] Release workflow invariants and dry-run safeguards verified.")
 
 
+def test_real_frontend_client():
+    print("[*] Testing Real Production Frontend Client via Node Test Runner...")
+    res = run(["npm", "test"], cwd=GUI_DIR)
+    assert res.returncode == 0, f"Frontend client tests failed:\n{res.stdout}\n{res.stderr}"
+    print("  [+] All 8 production frontend client conditions verified (200, 401, 503, offline, demo, scrub, session, token header).")
+
+
+def test_browser_security():
+    print("[*] Testing Browser-Level Security & Cross-Origin Credential Boundary via Headless Chrome...")
+    browser_test_script = SCRIPTS_DIR / "test_browser_security.mjs"
+    res = run(["node", str(browser_test_script)], cwd=REPO_ROOT)
+    assert res.returncode == 0, f"Browser security tests failed:\n{res.stdout}\n{res.stderr}"
+    print("  [+] Real browser security verified (exact-origin, CSRF mitigation, history scrubbing, security headers).")
+
+
 def main():
     print("=== Running Sarab Milestone Regression Test Suite ===")
     test_embedded_frontend_freshness()
@@ -300,7 +416,9 @@ def main():
     test_local_web_authentication_boundary()
     test_network_privacy_and_hosted_services()
     test_release_integrity_and_dry_run_safeguards()
-    print("=== All Regression Invariants Passed Successfully (5/5) ===")
+    test_real_frontend_client()
+    test_browser_security()
+    print("=== All Regression Invariants Passed Successfully (7/7) ===")
 
 
 if __name__ == "__main__":

@@ -10,6 +10,10 @@ import { ThemeProvider } from '@mui/material/styles';
 import CssBaseline from '@mui/material/CssBaseline';
 import { darkTheme } from './theme';
 import { App } from './App';
+import { initAuthFromLocation } from './api/client';
+
+// Scrub any query tokens from URL on initial script evaluation
+initAuthFromLocation();
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
   <React.StrictMode>

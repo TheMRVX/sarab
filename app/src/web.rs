@@ -168,24 +168,23 @@ pub fn make_session_cookie_header(token: &str) -> Header {
     .expect("Static Set-Cookie header is valid")
 }
 
-fn is_allowed_origin(origin: &str) -> bool {
+pub fn is_allowed_origin(origin: &str, expected_port: u16) -> bool {
     let lower = origin.trim().to_lowercase();
-    let allowed_prefixes = [
-        "http://localhost",
-        "https://localhost",
-        "http://127.0.0.1",
-        "https://127.0.0.1",
-        "http://[::1]",
-        "https://[::1]",
-    ];
+    let hosts = ["localhost", "127.0.0.1", "[::1]"];
+    let schemes = ["http://", "https://"];
 
-    for prefix in allowed_prefixes {
-        if let Some(rem) = lower.strip_prefix(prefix) {
-            if rem.is_empty() {
+    for scheme in schemes {
+        for host in hosts {
+            let with_port = format!("{}{}:{}", scheme, host, expected_port);
+            if lower == with_port {
                 return true;
             }
-            if let Some(port_str) = rem.strip_prefix(':') {
-                if !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit()) {
+            // Allow default port omission only for standard scheme ports (80 for http, 443 for https)
+            if (scheme == "http://" && expected_port == 80)
+                || (scheme == "https://" && expected_port == 443)
+            {
+                let without_port = format!("{}{}", scheme, host);
+                if lower == without_port {
                     return true;
                 }
             }
@@ -194,35 +193,42 @@ fn is_allowed_origin(origin: &str) -> bool {
     false
 }
 
-pub fn is_allowed_host(host: &str) -> bool {
+pub fn is_allowed_host(host: &str, expected_port: u16) -> bool {
     let host = host.trim().to_lowercase();
     if host.is_empty() {
         return false;
     }
-
-    if let Some(rem) = host.strip_prefix("[::1]") {
-        if rem.is_empty() {
+    let hosts = ["[::1]", "localhost", "127.0.0.1"];
+    for h in hosts {
+        if host == format!("{}:{}", h, expected_port) {
             return true;
         }
-        if let Some(port_str) = rem.strip_prefix(':') {
-            return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
+        if (expected_port == 80 || expected_port == 443) && host == h {
+            return true;
         }
-        return false;
+        if host == h {
+            return true;
+        }
     }
-
-    if host == "localhost" || host == "127.0.0.1" {
-        return true;
-    }
-
-    if let Some(port_str) = host.strip_prefix("localhost:") {
-        return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
-    }
-
-    if let Some(port_str) = host.strip_prefix("127.0.0.1:") {
-        return !port_str.is_empty() && port_str.chars().all(|c| c.is_ascii_digit());
-    }
-
     false
+}
+
+fn security_headers() -> Vec<Header> {
+    vec![
+        Header::from_bytes(
+            &b"Cache-Control"[..],
+            &b"no-store, no-cache, must-revalidate, private"[..],
+        )
+        .expect("Static Cache-Control header is valid"),
+        Header::from_bytes(&b"Pragma"[..], &b"no-cache"[..])
+            .expect("Static Pragma header is valid"),
+        Header::from_bytes(&b"Referrer-Policy"[..], &b"no-referrer"[..])
+            .expect("Static Referrer-Policy header is valid"),
+        Header::from_bytes(&b"X-Content-Type-Options"[..], &b"nosniff"[..])
+            .expect("Static X-Content-Type-Options header is valid"),
+        Header::from_bytes(&b"X-Frame-Options"[..], &b"DENY"[..])
+            .expect("Static X-Frame-Options header is valid"),
+    ]
 }
 
 fn get_header_value(request: &tiny_http::Request, name: &str) -> Option<String> {
@@ -256,11 +262,27 @@ pub fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> boo
             }
         }
     }
-    if let Some(token) = parse_query_token(request.url()) {
-        if token == expected_token {
+    false
+}
+
+pub fn is_token_valid_for_mutation(request: &tiny_http::Request, expected_token: &str) -> bool {
+    if expected_token.is_empty() {
+        return false;
+    }
+    if let Some(token) = get_header_value(request, "X-Sarab-Token") {
+        if token.trim() == expected_token {
             return true;
         }
     }
+    if let Some(auth) = get_header_value(request, "Authorization") {
+        if let Some(bearer) = auth.strip_prefix("Bearer ") {
+            if bearer.trim() == expected_token {
+                return true;
+            }
+        }
+    }
+    // Ambient cookies alone are intentionally not permitted for state mutations
+    // to strictly enforce anti-CSRF protection across ports.
     false
 }
 
@@ -435,40 +457,63 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Enforce strict Host header validation to prevent DNS Rebinding attacks
         let host_header = get_header_value(&request, "Host");
         let is_host_valid = match host_header.as_deref() {
-            Some(h) => is_allowed_host(h),
+            Some(h) => is_allowed_host(h, port),
             None => false,
         };
 
         if !is_host_valid {
-            let forbidden_resp =
+            let mut forbidden_resp =
                 Response::from_string(error_json("Forbidden: Invalid or Missing Host Header"))
                     .with_status_code(StatusCode(403))
                     .with_header(
                         Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                             .expect("Static JSON Content-Type header is valid"),
                     );
+            for h in security_headers() {
+                forbidden_resp.add_header(h);
+            }
             let _ = request.respond(forbidden_resp);
             continue;
         }
 
         let url_path = request.url().split('?').next().unwrap_or("/").to_string();
 
-        // Origin validation: block cross-origin requests from arbitrary websites
+        // Origin validation: block cross-origin requests from foreign ports or arbitrary websites
         if let Some(ref origin) = get_header_value(&request, "Origin") {
-            if !is_allowed_origin(origin) {
-                let forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
+            if !is_allowed_origin(origin, port) {
+                let mut forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
                     .with_status_code(StatusCode(403))
                     .with_header(
                         Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                             .expect("Static JSON Content-Type header is valid"),
                     );
+                for h in security_headers() {
+                    forbidden_resp.add_header(h);
+                }
+                let _ = request.respond(forbidden_resp);
+                continue;
+            }
+        }
+
+        // Sec-Fetch-Site validation: block cross-site requests
+        if let Some(ref site) = get_header_value(&request, "Sec-Fetch-Site") {
+            if site.eq_ignore_ascii_case("cross-site") {
+                let mut forbidden_resp = Response::from_string(error_json("Forbidden: Cross-Site Request Blocked"))
+                    .with_status_code(StatusCode(403))
+                    .with_header(
+                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                            .expect("Static JSON Content-Type header is valid"),
+                    );
+                for h in security_headers() {
+                    forbidden_resp.add_header(h);
+                }
                 let _ = request.respond(forbidden_resp);
                 continue;
             }
         }
 
         let origin_header_val = get_header_value(&request, "Origin")
-            .filter(|o| is_allowed_origin(o))
+            .filter(|o| is_allowed_origin(o, port))
             .unwrap_or_else(|| format!("http://localhost:{}", port));
 
         let cors_header = Header::from_bytes(
@@ -485,6 +530,17 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
         // Handle CORS preflight
         if request.method() == &Method::Options {
+            if let Some(ref origin) = get_header_value(&request, "Origin") {
+                if !is_allowed_origin(origin, port) {
+                    let mut forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
+                        .with_status_code(StatusCode(403));
+                    for h in security_headers() {
+                        forbidden_resp.add_header(h);
+                    }
+                    let _ = request.respond(forbidden_resp);
+                    continue;
+                }
+            }
             let cors_methods = Header::from_bytes(
                 &b"Access-Control-Allow-Methods"[..],
                 &b"GET, POST, OPTIONS"[..],
@@ -495,11 +551,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 &b"Content-Type, Authorization, X-Sarab-Token, Cookie"[..],
             )
             .expect("CORS Allow-Headers header is valid");
-            let response = Response::empty(StatusCode(204))
+            let mut response = Response::empty(StatusCode(204))
                 .with_header(cors_header.clone())
                 .with_header(cors_credentials.clone())
                 .with_header(cors_methods)
                 .with_header(cors_headers);
+            for h in security_headers() {
+                response.add_header(h);
+            }
             let _ = request.respond(response);
             continue;
         }
@@ -512,12 +571,15 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             // Public Authentication Status Endpoint (Does not require prior authentication)
             if url_path == "/api/auth/status" && request.method() == &Method::Get {
                 let is_auth = is_token_valid(&request, &session_token);
-                let resp = Response::from_string(
+                let mut resp = Response::from_string(
                     serde_json::json!({ "authenticated": is_auth }).to_string(),
                 )
                 .with_header(json_header)
                 .with_header(cors_header.clone())
                 .with_header(cors_credentials.clone());
+                for h in security_headers() {
+                    resp.add_header(h);
+                }
                 let _ = request.respond(resp);
                 continue;
             }
@@ -540,7 +602,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     .unwrap_or(false);
 
                 if is_match {
-                    let resp = Response::from_string(
+                    let mut resp = Response::from_string(
                         serde_json::json!({ "success": true, "message": "Authenticated" })
                             .to_string(),
                     )
@@ -548,27 +610,73 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     .with_header(cors_header.clone())
                     .with_header(cors_credentials.clone())
                     .with_header(make_session_cookie_header(&session_token));
+                    for h in security_headers() {
+                        resp.add_header(h);
+                    }
                     let _ = request.respond(resp);
                 } else {
-                    let resp = Response::from_string(error_json("Invalid session token"))
+                    let mut resp = Response::from_string(error_json("Invalid session token"))
                         .with_status_code(StatusCode(401))
                         .with_header(json_header)
                         .with_header(cors_header.clone())
                         .with_header(cors_credentials.clone());
+                    for h in security_headers() {
+                        resp.add_header(h);
+                    }
                     let _ = request.respond(resp);
                 }
                 continue;
             }
 
+            // Same-origin Session Endpoint (Returns session token if authenticated via cookie or header)
+            if url_path == "/api/auth/session" && request.method() == &Method::Get {
+                let is_auth = is_token_valid(&request, &session_token);
+                let resp_data = if is_auth {
+                    serde_json::json!({
+                        "authenticated": true,
+                        "token": session_token
+                    })
+                } else {
+                    serde_json::json!({
+                        "authenticated": false,
+                        "token": null
+                    })
+                };
+                let mut resp = Response::from_string(resp_data.to_string())
+                    .with_status_code(if is_auth { StatusCode(200) } else { StatusCode(401) })
+                    .with_header(json_header)
+                    .with_header(cors_header.clone())
+                    .with_header(cors_credentials.clone());
+                for h in security_headers() {
+                    resp.add_header(h);
+                }
+                let _ = request.respond(resp);
+                continue;
+            }
+
             // Validate session token for all other /api/* requests
-            if !is_token_valid(&request, &session_token) {
-                let unauth_resp = Response::from_string(error_json(
-                    "Unauthorized: Missing or invalid session token",
+            let is_mutating = request.method() != &Method::Get && request.method() != &Method::Head;
+            let authorized = if is_mutating {
+                is_token_valid_for_mutation(&request, &session_token)
+            } else {
+                is_token_valid(&request, &session_token)
+            };
+
+            if !authorized {
+                let mut unauth_resp = Response::from_string(error_json(
+                    if is_mutating {
+                        "Unauthorized: Mutating API request requires X-Sarab-Token or Bearer header"
+                    } else {
+                        "Unauthorized: Missing or invalid session token"
+                    }
                 ))
                 .with_status_code(StatusCode(401))
                 .with_header(json_header)
                 .with_header(cors_header.clone())
                 .with_header(cors_credentials.clone());
+                for h in security_headers() {
+                    unauth_resp.add_header(h);
+                }
                 let _ = request.respond(unauth_resp);
                 continue;
             }
@@ -1225,7 +1333,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             trimmed_path
         };
 
-        let is_request_authenticated = is_token_valid(&request, &session_token);
+        let has_valid_cookie = get_header_value(&request, "Cookie")
+            .and_then(|c| parse_cookie_value(&c, "sarab_session"))
+            .map(|t| t == session_token)
+            .unwrap_or(false);
+        let has_valid_query = parse_query_token(request.url())
+            .map(|t| t == session_token)
+            .unwrap_or(false);
+        let is_request_authenticated = has_valid_cookie || has_valid_query;
 
         let serve_index_html = |authenticated: bool| -> Option<Response<Cursor<Vec<u8>>>> {
             let index_file = Asset::get("index.html")?;
@@ -1233,39 +1348,20 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
                     .expect("Static HTML Content-Type header is valid");
             let raw = index_file.data.into_owned();
-            let html_str = String::from_utf8_lossy(&raw);
 
-            let (injected_html, extra_headers) = if authenticated {
-                let html = if html_str.contains("<head>") {
-                    html_str.replacen(
-                        "<head>",
-                        &format!(
-                            "<head><meta name=\"sarab-token\" content=\"{}\">",
-                            session_token
-                        ),
-                        1,
-                    )
-                } else {
-                    format!(
-                        "<meta name=\"sarab-token\" content=\"{}\">{}",
-                        session_token, html_str
-                    )
-                };
-                (html, vec![make_session_cookie_header(&session_token)])
-            } else {
-                // Unauthenticated request: serve clean HTML without token or session cookie
-                (html_str.into_owned(), Vec::new())
-            };
-
-            let bytes = injected_html.into_bytes();
-            let len = bytes.len();
             let mut headers = vec![mime_header, cors_header.clone(), cors_credentials.clone()];
-            headers.extend(extra_headers);
+            headers.extend(security_headers());
 
+            // Attach session cookie if authenticated via query parameter or existing session
+            if authenticated {
+                headers.push(make_session_cookie_header(&session_token));
+            }
+
+            let len = raw.len();
             Some(Response::new(
                 StatusCode(200),
                 headers,
-                Cursor::new(bytes),
+                Cursor::new(raw),
                 Some(len),
                 None,
             ))
@@ -1284,9 +1380,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 .expect("Static asset MIME Content-Type header is valid");
             let data = file.data.into_owned();
             let len = data.len();
+            let mut headers = vec![mime_header, cors_header.clone(), cors_credentials.clone()];
+            headers.extend(security_headers());
             let resp = Response::new(
                 StatusCode(200),
-                vec![mime_header, cors_header.clone(), cors_credentials.clone()],
+                headers,
                 Cursor::new(data),
                 Some(len),
                 None,
@@ -1296,9 +1394,12 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             // SPA fallback: return index.html for client-side routing
             let _ = request.respond(resp);
         } else {
-            let resp = Response::from_string("404 Not Found")
+            let mut resp = Response::from_string("404 Not Found")
                 .with_status_code(StatusCode(404))
                 .with_header(cors_header.clone());
+            for h in security_headers() {
+                resp.add_header(h);
+            }
             let _ = request.respond(resp);
         }
     }
@@ -1422,22 +1523,32 @@ mod tests {
 
     #[test]
     fn test_allowed_origin_validation() {
-        assert!(is_allowed_origin("http://localhost:8090"));
-        assert!(is_allowed_origin("http://127.0.0.1:8090"));
-        assert!(is_allowed_origin("http://[::1]:8090"));
-        assert!(is_allowed_origin("http://localhost"));
-        assert!(is_allowed_origin("http://127.0.0.1"));
-        assert!(is_allowed_origin("http://[::1]"));
-        assert!(is_allowed_origin("https://localhost:8090"));
-        assert!(is_allowed_origin("https://127.0.0.1:8090"));
-        assert!(is_allowed_origin("https://[::1]:8090"));
+        assert!(is_allowed_origin("http://localhost:8090", 8090));
+        assert!(is_allowed_origin("http://127.0.0.1:8090", 8090));
+        assert!(is_allowed_origin("http://[::1]:8090", 8090));
+        assert!(is_allowed_origin("https://localhost:8090", 8090));
+        assert!(is_allowed_origin("https://127.0.0.1:8090", 8090));
+        assert!(is_allowed_origin("https://[::1]:8090", 8090));
+        // Default port matching
+        assert!(is_allowed_origin("http://localhost:80", 80));
+        assert!(is_allowed_origin("http://localhost", 80));
+        assert!(is_allowed_origin("https://localhost:443", 443));
+        assert!(is_allowed_origin("https://localhost", 443));
+
+        // Negative test cases: foreign ports on localhost must be rejected
+        assert!(!is_allowed_origin("http://localhost:3000", 8090));
+        assert!(!is_allowed_origin("http://127.0.0.1:3000", 8090));
+        assert!(!is_allowed_origin("http://[::1]:3000", 8090));
+        assert!(!is_allowed_origin("http://localhost", 8090));
+        assert!(!is_allowed_origin("http://127.0.0.1", 8090));
+
         // Negative test cases: malicious subdomains/suffixes must be rejected
-        assert!(!is_allowed_origin("http://localhost.evil.com"));
-        assert!(!is_allowed_origin("http://127.0.0.1.evil.com"));
-        assert!(!is_allowed_origin("http://[::1].evil.com"));
-        assert!(!is_allowed_origin("http://evil.com"));
-        assert!(!is_allowed_origin("http://attacker.local"));
-        assert!(!is_allowed_origin("http://localhost:badport"));
+        assert!(!is_allowed_origin("http://localhost.evil.com", 8090));
+        assert!(!is_allowed_origin("http://127.0.0.1.evil.com", 8090));
+        assert!(!is_allowed_origin("http://[::1].evil.com", 8090));
+        assert!(!is_allowed_origin("http://evil.com", 8090));
+        assert!(!is_allowed_origin("http://attacker.local", 8090));
+        assert!(!is_allowed_origin("http://localhost:badport", 8090));
     }
 
     #[test]
@@ -1462,20 +1573,39 @@ mod tests {
 
     #[test]
     fn test_allowed_host_validation() {
-        assert!(is_allowed_host("localhost"));
-        assert!(is_allowed_host("localhost:8090"));
-        assert!(is_allowed_host("127.0.0.1"));
-        assert!(is_allowed_host("127.0.0.1:8090"));
-        assert!(is_allowed_host("[::1]"));
-        assert!(is_allowed_host("[::1]:8090"));
+        assert!(is_allowed_host("localhost", 8090));
+        assert!(is_allowed_host("localhost:8090", 8090));
+        assert!(is_allowed_host("127.0.0.1", 8090));
+        assert!(is_allowed_host("127.0.0.1:8090", 8090));
+        assert!(is_allowed_host("[::1]", 8090));
+        assert!(is_allowed_host("[::1]:8090", 8090));
+
+        // Foreign port on Host header must be rejected
+        assert!(!is_allowed_host("localhost:3000", 8090));
+        assert!(!is_allowed_host("127.0.0.1:3000", 8090));
+
         // Negative test cases: DNS rebinding and malicious hosts must be rejected
-        assert!(!is_allowed_host("[::1].evil.com"));
-        assert!(!is_allowed_host("localhost.evil.com"));
-        assert!(!is_allowed_host("127.0.0.1.evil.com"));
-        assert!(!is_allowed_host("evil.com"));
-        assert!(!is_allowed_host("attacker.local"));
-        assert!(!is_allowed_host("localhost:badport"));
-        assert!(!is_allowed_host(""));
+        assert!(!is_allowed_host("[::1].evil.com", 8090));
+        assert!(!is_allowed_host("localhost.evil.com", 8090));
+        assert!(!is_allowed_host("127.0.0.1.evil.com", 8090));
+        assert!(!is_allowed_host("evil.com", 8090));
+        assert!(!is_allowed_host("attacker.local", 8090));
+        assert!(!is_allowed_host("localhost:badport", 8090));
+        assert!(!is_allowed_host("", 8090));
+    }
+
+    #[test]
+    fn test_security_headers_present() {
+        let headers = security_headers();
+        let header_names: Vec<String> = headers
+            .iter()
+            .map(|h| h.field.as_str().to_string())
+            .collect();
+        assert!(header_names.contains(&"Cache-Control".to_string()));
+        assert!(header_names.contains(&"Pragma".to_string()));
+        assert!(header_names.contains(&"Referrer-Policy".to_string()));
+        assert!(header_names.contains(&"X-Content-Type-Options".to_string()));
+        assert!(header_names.contains(&"X-Frame-Options".to_string()));
     }
 
     #[test]

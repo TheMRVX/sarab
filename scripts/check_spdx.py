@@ -12,8 +12,9 @@ def files():
     for directory, suffixes in [
         ("app/src", {".rs"}),
         ("gui/src", {".ts", ".tsx"}),
+        ("gui/scripts", {".mjs"}),
         ("driver", {".cpp", ".h", ".hpp"}),
-        ("scripts", {".py"}),
+        ("scripts", {".py", ".mjs"}),
     ]:
         for p in (ROOT / directory).rglob("*"):
             if p.is_file() and p.suffix in suffixes:
