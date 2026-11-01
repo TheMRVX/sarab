@@ -7,11 +7,20 @@ import {
   Divider,
   Snackbar,
   Alert,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogContentText,
+  DialogActions,
+  Button,
+  TextField,
+  CircularProgress,
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
 import SatelliteAltIcon from '@mui/icons-material/SatelliteAlt';
 import HandymanIcon from '@mui/icons-material/Handyman';
+import VpnKeyIcon from '@mui/icons-material/VpnKey';
 
 import { Header } from './components/Header';
 import { MapView } from './components/MapView';
@@ -23,7 +32,7 @@ import { DriverSetupCard } from './components/DriverSetupCard';
 import { DriftControlCard } from './components/DriftControlCard';
 import { StatusBar } from './components/StatusBar';
 
-import { api } from './api/client';
+import { api, checkAuthStatus, verifyToken } from './api/client';
 import {
   SpoofConfig,
   SystemStatus,
@@ -74,6 +83,11 @@ export const App: React.FC = () => {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
+  const [, setIsAuthenticated] = useState<boolean>(true);
+  const [authDialogOpen, setAuthDialogOpen] = useState<boolean>(false);
+  const [tokenInput, setTokenInput] = useState<string>('');
+  const [authError, setAuthError] = useState<string>('');
+  const [isVerifying, setIsVerifying] = useState<boolean>(false);
   const [notification, setNotification] = useState<{
     open: boolean;
     message: string;
@@ -99,13 +113,23 @@ export const App: React.FC = () => {
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
+      const authed = await checkAuthStatus();
+      if (!authed) {
+        setIsAuthenticated(false);
+        setAuthDialogOpen(true);
+        setIsLoading(false);
+        return;
+      }
+      setIsAuthenticated(true);
+      setAuthDialogOpen(false);
+
       const [cfg, status, fix, sats] = await Promise.all([
-        api.getSpoofConfig(),
+        api.getSpoofConfig().catch(() => null),
         api.getSystemStatus(),
         api.queryLiveLocation(),
         api.getSatellites(),
       ]);
-      setConfig(cfg);
+      if (cfg) setConfig(cfg);
       setSystemStatus(status);
       setLiveFix(fix);
       setSatellites(sats);
@@ -116,6 +140,32 @@ export const App: React.FC = () => {
       setIsLoading(false);
     }
   }, []);
+
+  const handleVerifyToken = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!tokenInput.trim()) {
+      setAuthError('Please enter a session token.');
+      return;
+    }
+    setIsVerifying(true);
+    setAuthError('');
+    try {
+      const ok = await verifyToken(tokenInput.trim());
+      if (ok) {
+        setIsAuthenticated(true);
+        setAuthDialogOpen(false);
+        setTokenInput('');
+        showNotification('Dashboard unlocked successfully', 'success');
+        await loadData();
+      } else {
+        setAuthError('Invalid session token. Run `sarab token` in terminal to view the active token.');
+      }
+    } catch {
+      setAuthError('Connection error while verifying token.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -220,10 +270,14 @@ export const App: React.FC = () => {
     try {
       const fix = await api.queryLiveLocation();
       setLiveFix(fix);
-      showNotification(
-        `WinRT Reported Fix: ${fix.latitude.toFixed(5)}°, ${fix.longitude.toFixed(5)}° (${fix.source})`,
-        'success'
-      );
+      if (fix) {
+        showNotification(
+          `WinRT Reported Fix: ${fix.latitude.toFixed(5)}°, ${fix.longitude.toFixed(5)}° (${fix.source})`,
+          'success'
+        );
+      } else {
+        showNotification('No active fix reported by Windows Location Service', 'info');
+      }
     } catch {
       showNotification('Failed to query WinRT Windows.Devices.Geolocation', 'error');
     } finally {
@@ -404,6 +458,76 @@ export const App: React.FC = () => {
           {notification.message}
         </Alert>
       </Snackbar>
+
+      {/* Local Web Authentication Dialog */}
+      <Dialog
+        open={authDialogOpen}
+        disableEscapeKeyDown
+        PaperProps={{
+          sx: {
+            bgcolor: 'background.paper',
+            borderRadius: 3,
+            p: 1,
+            minWidth: { xs: '90%', sm: 460 },
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1.5, pb: 1 }}>
+          <VpnKeyIcon color="primary" />
+          Authentication Required
+        </DialogTitle>
+        <form onSubmit={handleVerifyToken}>
+          <DialogContent sx={{ pt: 1 }}>
+            <DialogContentText sx={{ mb: 2, color: 'text.secondary' }}>
+              Access to Sarab GNSS controls is protected. Enter the active session token to unlock this dashboard.
+            </DialogContentText>
+            <Box
+              sx={{
+                bgcolor: 'action.hover',
+                p: 1.5,
+                borderRadius: 1.5,
+                mb: 2.5,
+                fontFamily: 'monospace',
+                fontSize: '0.85rem',
+                border: '1px solid',
+                borderColor: 'divider',
+              }}
+            >
+              $ sarab token
+            </Box>
+            {authError && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                {authError}
+              </Alert>
+            )}
+            <TextField
+              autoFocus
+              fullWidth
+              size="medium"
+              label="Session Token"
+              variant="outlined"
+              value={tokenInput}
+              onChange={(e) => {
+                setTokenInput(e.target.value);
+                if (authError) setAuthError('');
+              }}
+              placeholder="Enter active session token..."
+              disabled={isVerifying}
+            />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2 }}>
+            <Button
+              type="submit"
+              variant="contained"
+              color="primary"
+              disabled={isVerifying || !tokenInput.trim()}
+              startIcon={isVerifying ? <CircularProgress size={18} /> : undefined}
+            >
+              {isVerifying ? 'Verifying...' : 'Unlock Dashboard'}
+            </Button>
+          </DialogActions>
+        </form>
+      </Dialog>
     </Box>
   );
 };

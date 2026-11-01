@@ -242,6 +242,23 @@ pub fn save_session_token(token: &str) -> Result<()> {
     Ok(())
 }
 
+pub fn load_session_token() -> Result<String> {
+    let path = get_session_token_path();
+    if is_reparse_point(&path) {
+        anyhow::bail!(
+            "Refusing to read session token from reparse point / symlink: {:?}",
+            path
+        );
+    }
+    let token = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read session token from {:?}", path))?;
+    let trimmed = token.trim();
+    if trimmed.is_empty() {
+        anyhow::bail!("Session token file is empty");
+    }
+    Ok(trimmed.to_string())
+}
+
 pub fn save_local_config(config: &SpoofConfig) -> Result<()> {
     let _dir = ensure_secure_data_dir()?;
     let path = get_config_path();

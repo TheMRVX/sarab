@@ -48,6 +48,16 @@ pub enum Commands {
 
     /// Manage the headless Windows background service (install / uninstall / start / stop / status / run)
     Service(ServiceArgs),
+
+    /// Display or query the active web dashboard session token
+    Token(TokenArgs),
+}
+
+#[derive(Args, Debug)]
+pub struct TokenArgs {
+    /// Print only the raw token string (useful for automation scripts)
+    #[arg(short, long)]
+    pub raw: bool,
 }
 
 #[derive(Args, Debug)]
