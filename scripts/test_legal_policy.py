@@ -51,7 +51,7 @@ assert "VITE_GEOCODING_SEARCH_URL" in view
 assert "SEARCH_INTERVAL_MS" in view
 assert "nominatim.openstreetmap.org/search" not in view
 assert "{geocodingSearchUrl && (" in view
-assert not re.search(r"attributionControl\\s*:\\s*false", view)
+assert not re.search(r"attributionControl\s*:\s*false", view)
 
 web = (repo / "app/src/web.rs").read_text()
 assert "SARAB_OSRM_BASE_URL" in web
