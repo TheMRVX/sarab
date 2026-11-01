@@ -66,8 +66,8 @@ route_ui = (repo / "gui/src/components/RouteSimulator.tsx").read_text()
 assert "/api/route/osrm/status" in route_ui
 assert "window.confirm(" in route_ui
 assert "osrmEnabled" in route_ui
-assert "https://project-osrm.org/" in route_ui
-assert "https://www.openstreetmap.org/edit" in route_ui
+assert re.search(r"https://project-osrm\.org/", route_ui) is not None
+assert re.search(r"https://www\.openstreetmap\.org/edit", route_ui) is not None
 
 for workflow in ("legal-audit.yml", "release.yml"):
     content = (repo / ".github/workflows" / workflow).read_text()
@@ -94,14 +94,14 @@ dist_assets = list((repo / "gui/dist/assets").glob("*.js"))
 assert dist_assets, "Missing compiled JS assets in gui/dist/assets"
 for asset in dist_assets:
     asset_content = asset.read_text(encoding="utf-8")
-    assert "nominatim.openstreetmap.org" not in asset_content, f"Nominatim reference found in {asset.name}"
+    assert not re.search(r"nominatim\.openstreetmap\.org", asset_content), f"Nominatim reference found in {asset.name}"
 index_html = (repo / "gui/dist/index.html").read_text(encoding="utf-8")
 assert '<div id="root"></div>' in index_html
 assert any(asset.name in index_html for asset in dist_assets), "index.html does not reference a valid bundle in assets"
 
 build_rs = (repo / "app/build.rs").read_text(encoding="utf-8")
 assert "validate_embedded_frontend" in build_rs
-assert "nominatim.openstreetmap.org" in build_rs
+assert re.search(r"nominatim\.openstreetmap\.org", build_rs) is not None
 
 assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release
 notice = (repo / "NOTICE").read_text()
