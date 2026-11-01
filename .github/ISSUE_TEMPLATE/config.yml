@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage questions and support
+    url: https://github.com/TheMRVX/sarab/discussions
+    about: Ask general questions in GitHub Discussions; check SUPPORT.md first.
+  - name: Security reporting instructions
+    url: https://github.com/TheMRVX/sarab/blob/main/SECURITY.md
+    about: Never post security vulnerabilities in public issues.

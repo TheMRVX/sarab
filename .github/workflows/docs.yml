@@ -1,0 +1,47 @@
+name: Documentation
+
+on:
+  pull_request:
+    paths:
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/docs.yml'
+      - 'scripts/check_docs.py'
+  push:
+    branches: [main]
+    paths:
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/docs.yml'
+      - 'scripts/check_docs.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docs:
+    name: Validate documentation links and templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Validate repository-local Markdown links
+        run: python3 scripts/check_docs.py
+      - name: Validate GitHub issue forms YAML
+        run: |
+          python3 -m pip install --disable-pip-version-check 'PyYAML==6.0.2'
+          python3 - <<'PY'
+          import pathlib
+          import yaml
+          forms = sorted(pathlib.Path('.github/ISSUE_TEMPLATE').glob('*.yml'))
+          for path in forms:
+              with path.open(encoding='utf-8') as fh:
+                  doc = yaml.safe_load(fh)
+              if not isinstance(doc, dict):
+                  raise SystemExit(f'{path}: expected YAML mapping')
+              if path.name != 'config.yml':
+                  if not doc.get('name') or not isinstance(doc.get('body'), list):
+                      raise SystemExit(f'{path}: missing name or body')
+              print(f'validated {path}')
+          PY
