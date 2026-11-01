@@ -34,6 +34,21 @@ Run from an elevated PowerShell terminal on an authorized test device with the d
 
 The `route play` command requires `--file` and takes `--speed` (km/h) and optional `--loop-route` as defined in the current CLI. The `route status` and `route stop` commands talk to the local daemon (if running). The headless `route play` command runs in its own process; see the source for process lifecycle details.
 
+### Optional road snapping
+
+The dashboard's **Snap to Roads** feature is disabled by default. To enable it, configure an OSRM-compatible endpoint before starting Sarab:
+
+```powershell
+$env:SARAB_OSRM_BASE_URL = "https://your-authorized-osrm.example"
+.\sarab.exe gui --open
+```
+
+For a locally hosted OSRM instance, an HTTP loopback endpoint is also accepted (for example, `http://127.0.0.1:5000`). Remote endpoints must use HTTPS. Restart Sarab after changing the environment variable.
+
+When you click **Snap to Roads**, the dashboard asks for confirmation before sending all route waypoint coordinates to the configured provider. The provider may log those coordinates. Sarab identifies itself with an application-specific User-Agent and project Referer, and enforces a 1.1-second minimum between requests per process. This local limit does not coordinate traffic across installations.
+
+Do not use the public OSRM demo server as a production dependency. Its published guidance restricts use to reasonable non-commercial workloads, sets a maximum of one request per second, and provides no uptime or data-update guarantees. Prefer a self-hosted or otherwise authorized provider for distributed use. See [the licensing and hosted-services notes](LICENSING.md#road-snapping-and-routing-osrm).
+
 ## Dashboard and service
 
 ```powershell

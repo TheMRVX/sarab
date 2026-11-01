@@ -253,7 +253,7 @@ fn validate_osrm_base_url(raw: &str) -> Result<String, &'static str> {
         return Err("SARAB_OSRM_BASE_URL is empty");
     }
     if value.chars().any(|ch| {
-        ch.is_whitespace() || matches!(ch, '?' | '#' | '@' | '\\\\' | '\\r' | '\\n')
+        ch.is_whitespace() || matches!(ch, '?' | '#' | '@') || ch == char::from(92)
     }) {
         return Err("SARAB_OSRM_BASE_URL must be a base URL without credentials, query, or fragment");
     }

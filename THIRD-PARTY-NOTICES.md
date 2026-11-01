@@ -5365,9 +5365,38 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ~~~~
 
-## Hosted map data
+## Hosted map services
+
+### OpenStreetMap tiles
 
 The map UI requests standard OpenStreetMap tiles over HTTPS; those tiles are
 not bundled with Sarab. The map displays visible OpenStreetMap contributor
 attribution with a link to https://www.openstreetmap.org/copyright.
 Operators must also follow https://operations.osmfoundation.org/policies/tiles/.
+
+### Geocoding (optional)
+
+Location search is hidden unless a provider is configured at frontend build time
+with VITE_GEOCODING_SEARCH_URL. Submitted search queries are sent directly from
+the browser to that provider and may be logged there. Browser fetch cannot set a
+custom User-Agent. Do not configure the public Nominatim endpoint for distributed
+Sarab builds; use a provider that authorizes browser-based desktop clients and
+documents its privacy, attribution, and rate-limit terms. See
+https://operations.osmfoundation.org/policies/nominatim/.
+
+### Road routing (optional OSRM)
+
+Road snapping is disabled unless SARAB_OSRM_BASE_URL is configured before
+starting Sarab. When a user explicitly invokes and confirms Snap to Roads,
+waypoint coordinates are sent to the configured OSRM-compatible provider and
+may be retained in its logs. Requests carry an identifying Sarab User-Agent
+and project Referer, with a 1.1-second per-process rate limit. This is not a
+global limit across installations.
+
+The public OSRM demo server is not a production default. Its published guidance
+describes reasonable non-commercial use, at most one request per second, and
+no uptime or data-update guarantees. Prefer a self-hosted or otherwise authorized
+provider for distributed use. See https://github.com/Project-OSRM/osrm-backend/wiki/Demo-server
+and https://github.com/Project-OSRM/osrm-backend/wiki/Api-usage-policy.
+OSRM routes use OpenStreetMap data; preserve © OpenStreetMap contributors and
+OSRM attribution as required by the provider and data terms.

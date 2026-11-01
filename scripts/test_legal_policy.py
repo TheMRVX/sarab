@@ -47,6 +47,19 @@ assert "attribution:" in view
 assert "VITE_GEOCODING_SEARCH_URL" in view
 assert "SEARCH_INTERVAL_MS" in view
 assert "nominatim.openstreetmap.org/search" not in view
+assert "{geocodingSearchUrl && (" in view
+
+web = (repo / "app/src/web.rs").read_text()
+assert "SARAB_OSRM_BASE_URL" in web
+assert "router.project-osrm.org" not in web
+assert '"/api/route/osrm/status"' in web
+assert '.set("User-Agent", &user_agent)' in web
+assert "OSRM_MIN_REQUEST_INTERVAL" in web
+assert "validate_osrm_base_url" in web
+route_ui = (repo / "gui/src/components/RouteSimulator.tsx").read_text()
+assert "/api/route/osrm/status" in route_ui
+assert "window.confirm(" in route_ui
+assert "osrmEnabled" in route_ui
 for workflow in ("legal-audit.yml", "release.yml"):
     content = (repo / ".github/workflows" / workflow).read_text()
     assert "--excludePrivatePackages" in content, f"Missing private-project exclusion: {workflow}"
@@ -57,4 +70,4 @@ assert not re.search(r"attributionControl\s*:\s*false", view)
 notice = (repo / "NOTICE").read_text()
 assert notice.startswith("Sarab (Mirage)")
 assert "Apache-2.0 section" not in notice
-print("License policy and safe-release invariants passed.")
+print("License, hosted-service, and safe-release invariants passed.")
