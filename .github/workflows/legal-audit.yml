@@ -27,6 +27,13 @@ jobs:
           cache: npm
           cache-dependency-path: gui/package-lock.json
 
+      - name: Build Web GUI and verify committed assets
+        working-directory: gui
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm run build
+          git diff --exit-code -- dist
+
       - name: Check licensing invariants and SPDX headers
         run: |
           python3 scripts/test_legal_policy.py

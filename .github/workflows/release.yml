@@ -60,6 +60,10 @@ jobs:
           npm ci
           npm run build
 
+      - name: Verify Web GUI build consistency
+        run: |
+          git diff --exit-code -- gui/dist
+
       - name: Audit dependency licenses and generate notices
         shell: pwsh
         run: |

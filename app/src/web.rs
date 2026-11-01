@@ -223,11 +223,7 @@ fn error_json(msg: impl ToString) -> String {
 }
 
 fn is_loopback_osrm_authority(authority: &str) -> bool {
-    let valid_port = |port: &str| {
-        port.parse::<u16>()
-            .map(|value| value != 0)
-            .unwrap_or(false)
-    };
+    let valid_port = |port: &str| port.parse::<u16>().map(|value| value != 0).unwrap_or(false);
 
     for host in ["localhost", "127.0.0.1"] {
         if authority == host {
@@ -252,10 +248,13 @@ fn validate_osrm_base_url(raw: &str) -> Result<String, &'static str> {
     if value.is_empty() {
         return Err("SARAB_OSRM_BASE_URL is empty");
     }
-    if value.chars().any(|ch| {
-        ch.is_whitespace() || matches!(ch, '?' | '#' | '@') || ch == char::from(92)
-    }) {
-        return Err("SARAB_OSRM_BASE_URL must be a base URL without credentials, query, or fragment");
+    if value
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '?' | '#' | '@') || ch == char::from(92))
+    {
+        return Err(
+            "SARAB_OSRM_BASE_URL must be a base URL without credentials, query, or fragment",
+        );
     }
 
     let (scheme, remainder) = value
@@ -817,12 +816,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             "cycling" => "bike",
                             "driving" => "driving",
                             _ => {
-                                let resp = Response::from_string(error_json(
-                                    "Unsupported OSRM profile",
-                                ))
-                                .with_status_code(StatusCode(400))
-                                .with_header(json_header)
-                                .with_header(cors_header.clone());
+                                let resp =
+                                    Response::from_string(error_json("Unsupported OSRM profile"))
+                                        .with_status_code(StatusCode(400))
+                                        .with_header(json_header)
+                                        .with_header(cors_header.clone());
                                 let _ = request.respond(resp);
                                 continue;
                             }
@@ -1339,5 +1337,33 @@ mod tests {
         assert!(!is_allowed_host("attacker.local"));
         assert!(!is_allowed_host("localhost:badport"));
         assert!(!is_allowed_host(""));
+    }
+
+    #[test]
+    fn test_embedded_frontend_assets_integrity() {
+        let index_file =
+            Asset::get("index.html").expect("index.html must be present in embedded assets");
+        let html =
+            std::str::from_utf8(index_file.data.as_ref()).expect("index.html must be valid utf-8");
+        assert!(html.contains("<div id=\"root\"></div>"));
+
+        let mut js_bundle_found = false;
+        for file_path in Asset::iter() {
+            if file_path.ends_with(".js") {
+                js_bundle_found = true;
+                let js_file = Asset::get(&file_path).expect("Asset must be loadable");
+                let content = std::str::from_utf8(js_file.data.as_ref())
+                    .expect("JS asset must be valid utf-8");
+                assert!(
+                    !content.contains("nominatim.openstreetmap.org"),
+                    "Embedded JS asset {} must not contain nominatim.openstreetmap.org",
+                    file_path
+                );
+            }
+        }
+        assert!(
+            js_bundle_found,
+            "At least one JS bundle must be embedded in assets"
+        );
     }
 }

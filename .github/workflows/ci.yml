@@ -52,6 +52,10 @@ jobs:
           npm ci
           npm run build
 
+      - name: Verify Web GUI build consistency
+        run: |
+          git diff --exit-code -- gui/dist
+
       - name: Check Rust formatting & Clippy lints
         run: |
           cd app

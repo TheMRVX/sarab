@@ -89,6 +89,20 @@ assert "SARAB_OSRM_BASE_URL" in notice_report
 assert "VITE_GEOCODING_SEARCH_URL" in notice_report
 assert "Hosted map services" in notice_report
 
+# Verify compiled frontend bundle integrity and build protection
+dist_assets = list((repo / "gui/dist/assets").glob("*.js"))
+assert dist_assets, "Missing compiled JS assets in gui/dist/assets"
+for asset in dist_assets:
+    asset_content = asset.read_text(encoding="utf-8")
+    assert "nominatim.openstreetmap.org" not in asset_content, f"Nominatim reference found in {asset.name}"
+index_html = (repo / "gui/dist/index.html").read_text(encoding="utf-8")
+assert '<div id="root"></div>' in index_html
+assert any(asset.name in index_html for asset in dist_assets), "index.html does not reference a valid bundle in assets"
+
+build_rs = (repo / "app/build.rs").read_text(encoding="utf-8")
+assert "validate_embedded_frontend" in build_rs
+assert "nominatim.openstreetmap.org" in build_rs
+
 assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release
 notice = (repo / "NOTICE").read_text()
 assert notice.startswith("Sarab (Mirage)")
