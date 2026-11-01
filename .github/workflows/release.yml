@@ -9,6 +9,7 @@ on:
       - 'gui/**'
       - 'installer/**'
       - 'scripts/generate_third_party_notices.py'
+      - 'scripts/test_legal_policy.py'
       - 'THIRD-PARTY-NOTICES.md'
       - '.github/workflows/release.yml'
       - '.github/workflows/legal-audit.yml'

@@ -93,6 +93,7 @@ assert "SARAB_OSRM_BASE_URL" in licensing
 assert "SARAB_OSRM_BASE_URL" in usage
 assert "SARAB_OSRM_BASE_URL" in generator
 assert "VITE_GEOCODING_SEARCH_URL" in generator
+assert "VITE_GEOCODING_SEARCH_URL" not in release
 
 notice = (repo / "THIRD-PARTY-NOTICES.md").read_text()
 assert "SARAB_OSRM_BASE_URL" in notice
