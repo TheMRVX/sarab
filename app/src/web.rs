@@ -121,20 +121,51 @@ pub fn open_browser(url: &str) {
     }
 }
 
-pub fn generate_session_token() -> String {
+pub fn generate_session_token() -> Result<String, anyhow::Error> {
     let mut buf = [0u8; 16];
-    if getrandom::getrandom(&mut buf).is_ok() {
-        buf.iter().map(|b| format!("{:02x}", b)).collect()
-    } else {
-        format!(
-            "{:016x}{:016x}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_nanos(),
-            std::process::id()
-        )
+    getrandom::getrandom(&mut buf)
+        .map_err(|e| anyhow::anyhow!("Cryptographic random number generator failed: {}", e))?;
+    Ok(buf.iter().map(|b| format!("{:02x}", b)).collect())
+}
+
+pub fn parse_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
+    for part in cookie_header.split(';') {
+        let part = part.trim();
+        if let Some((k, v)) = part.split_once('=') {
+            if k.trim() == cookie_name {
+                let val = v.trim().trim_matches('"');
+                if !val.is_empty() {
+                    return Some(val.to_string());
+                }
+            }
+        }
     }
+    None
+}
+
+pub fn parse_query_token(url: &str) -> Option<String> {
+    if let Some((_, query)) = url.split_once('?') {
+        for pair in query.split('&') {
+            if let Some((k, v)) = pair.split_once('=') {
+                if k == "token" && !v.is_empty() {
+                    return Some(v.to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn make_session_cookie_header(token: &str) -> Header {
+    Header::from_bytes(
+        &b"Set-Cookie"[..],
+        format!(
+            "sarab_session={}; HttpOnly; SameSite=Strict; Path=/",
+            token
+        )
+        .as_bytes(),
+    )
+    .expect("Static Set-Cookie header is valid")
 }
 
 fn is_allowed_origin(origin: &str) -> bool {
@@ -202,17 +233,32 @@ fn get_header_value(request: &tiny_http::Request, name: &str) -> Option<String> 
         .map(|h| h.value.as_str().to_string())
 }
 
-fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> bool {
+pub fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> bool {
+    if expected_token.is_empty() {
+        return false;
+    }
     if let Some(token) = get_header_value(request, "X-Sarab-Token") {
-        if token == expected_token {
+        if token.trim() == expected_token {
             return true;
         }
     }
     if let Some(auth) = get_header_value(request, "Authorization") {
         if let Some(bearer) = auth.strip_prefix("Bearer ") {
-            if bearer == expected_token {
+            if bearer.trim() == expected_token {
                 return true;
             }
+        }
+    }
+    if let Some(cookie) = get_header_value(request, "Cookie") {
+        if let Some(val) = parse_cookie_value(&cookie, "sarab_session") {
+            if val == expected_token {
+                return true;
+            }
+        }
+    }
+    if let Some(token) = parse_query_token(request.url()) {
+        if token == expected_token {
+            return true;
         }
     }
     false
@@ -330,7 +376,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 println!("  Sarab Virtual GNSS Service is already active on {}", addr);
                 println!("  Opening dashboard in web browser: {}", local_url);
                 println!("========================================================\n");
-                open_browser(&local_url);
+                let browser_url = match crate::config::load_session_token() {
+                    Ok(t) => format!("{}?token={}", local_url, t),
+                    Err(_) => local_url.clone(),
+                };
+                open_browser(&browser_url);
                 return Ok(());
             }
             return Err(anyhow::anyhow!(
@@ -341,7 +391,15 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         }
     };
 
-    let session_token = generate_session_token();
+    let session_token = match generate_session_token() {
+        Ok(t) => t,
+        Err(e) => {
+            return Err(anyhow::anyhow!(
+                "Failed to generate secure session token: {}",
+                e
+            ));
+        }
+    };
     if let Err(e) = crate::config::save_session_token(&session_token) {
         eprintln!("[!] Warning: Could not save session token: {}", e);
     }
@@ -365,7 +423,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     println!("========================================================\n");
 
     if open {
-        open_browser(&local_url);
+        let browser_url = format!("{}?token={}", local_url, session_token);
+        open_browser(&browser_url);
     }
 
     let route_runner = crate::route_runner::RouteRunner::new();
@@ -418,6 +477,12 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         )
         .expect("CORS Allow-Origin header is valid");
 
+        let cors_credentials = Header::from_bytes(
+            &b"Access-Control-Allow-Credentials"[..],
+            &b"true"[..],
+        )
+        .expect("CORS Allow-Credentials header is valid");
+
         // Handle CORS preflight
         if request.method() == &Method::Options {
             let cors_methods = Header::from_bytes(
@@ -427,11 +492,12 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             .expect("CORS Allow-Methods header is valid");
             let cors_headers = Header::from_bytes(
                 &b"Access-Control-Allow-Headers"[..],
-                &b"Content-Type, Authorization, X-Sarab-Token"[..],
+                &b"Content-Type, Authorization, X-Sarab-Token, Cookie"[..],
             )
             .expect("CORS Allow-Headers header is valid");
             let response = Response::empty(StatusCode(204))
                 .with_header(cors_header.clone())
+                .with_header(cors_credentials.clone())
                 .with_header(cors_methods)
                 .with_header(cors_headers);
             let _ = request.respond(response);
@@ -443,14 +509,66 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             let json_header = Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
                 .expect("Static JSON Content-Type header is valid");
 
-            // Validate session token for all /api/* requests
+            // Public Authentication Status Endpoint (Does not require prior authentication)
+            if url_path == "/api/auth/status" && request.method() == &Method::Get {
+                let is_auth = is_token_valid(&request, &session_token);
+                let resp = Response::from_string(
+                    serde_json::json!({ "authenticated": is_auth }).to_string(),
+                )
+                .with_header(json_header)
+                .with_header(cors_header.clone())
+                .with_header(cors_credentials.clone());
+                let _ = request.respond(resp);
+                continue;
+            }
+
+            // Public Authentication Verification Endpoint (Exchanges token for session cookie)
+            if url_path == "/api/auth/verify" && request.method() == &Method::Post {
+                let mut content = String::new();
+                let _ = request
+                    .as_reader()
+                    .take(MAX_JSON_BODY_SIZE)
+                    .read_to_string(&mut content);
+
+                let is_match = serde_json::from_str::<serde_json::Value>(&content)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("token")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.trim() == session_token)
+                    })
+                    .unwrap_or(false);
+
+                if is_match {
+                    let resp = Response::from_string(
+                        serde_json::json!({ "success": true, "message": "Authenticated" })
+                            .to_string(),
+                    )
+                    .with_header(json_header)
+                    .with_header(cors_header.clone())
+                    .with_header(cors_credentials.clone())
+                    .with_header(make_session_cookie_header(&session_token));
+                    let _ = request.respond(resp);
+                } else {
+                    let resp = Response::from_string(error_json("Invalid session token"))
+                        .with_status_code(StatusCode(401))
+                        .with_header(json_header)
+                        .with_header(cors_header.clone())
+                        .with_header(cors_credentials.clone());
+                    let _ = request.respond(resp);
+                }
+                continue;
+            }
+
+            // Validate session token for all other /api/* requests
             if !is_token_valid(&request, &session_token) {
                 let unauth_resp = Response::from_string(error_json(
-                    "Unauthorized: Missing or invalid X-Sarab-Token header",
+                    "Unauthorized: Missing or invalid session token",
                 ))
                 .with_status_code(StatusCode(401))
                 .with_header(json_header)
-                .with_header(cors_header.clone());
+                .with_header(cors_header.clone())
+                .with_header(cors_credentials.clone());
                 let _ = request.respond(unauth_resp);
                 continue;
             }
@@ -1107,14 +1225,18 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             trimmed_path
         };
 
-        if path == "index.html" {
-            if let Some(index_file) = Asset::get("index.html") {
-                let mime_header =
-                    Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-                        .expect("Static HTML Content-Type header is valid");
-                let raw = index_file.data.into_owned();
-                let html_str = String::from_utf8_lossy(&raw);
-                let injected = if html_str.contains("<head>") {
+        let is_request_authenticated = is_token_valid(&request, &session_token);
+
+        let serve_index_html = |authenticated: bool| -> Option<Response<Cursor<Vec<u8>>>> {
+            let index_file = Asset::get("index.html")?;
+            let mime_header =
+                Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
+                    .expect("Static HTML Content-Type header is valid");
+            let raw = index_file.data.into_owned();
+            let html_str = String::from_utf8_lossy(&raw);
+
+            let (injected_html, extra_headers) = if authenticated {
+                let html = if html_str.contains("<head>") {
                     html_str.replacen(
                         "<head>",
                         &format!(
@@ -1129,15 +1251,28 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                         session_token, html_str
                     )
                 };
-                let bytes = injected.into_bytes();
-                let len = bytes.len();
-                let resp = Response::new(
-                    StatusCode(200),
-                    vec![mime_header, cors_header.clone()],
-                    Cursor::new(bytes),
-                    Some(len),
-                    None,
-                );
+                (html, vec![make_session_cookie_header(&session_token)])
+            } else {
+                // Unauthenticated request: serve clean HTML without token or session cookie
+                (html_str.into_owned(), Vec::new())
+            };
+
+            let bytes = injected_html.into_bytes();
+            let len = bytes.len();
+            let mut headers = vec![mime_header, cors_header.clone(), cors_credentials.clone()];
+            headers.extend(extra_headers);
+
+            Some(Response::new(
+                StatusCode(200),
+                headers,
+                Cursor::new(bytes),
+                Some(len),
+                None,
+            ))
+        };
+
+        if path == "index.html" {
+            if let Some(resp) = serve_index_html(is_request_authenticated) {
                 let _ = request.respond(resp);
                 continue;
             }
@@ -1151,43 +1286,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             let len = data.len();
             let resp = Response::new(
                 StatusCode(200),
-                vec![mime_header, cors_header.clone()],
+                vec![mime_header, cors_header.clone(), cors_credentials.clone()],
                 Cursor::new(data),
                 Some(len),
                 None,
             );
             let _ = request.respond(resp);
-        } else if let Some(index_file) = Asset::get("index.html") {
+        } else if let Some(resp) = serve_index_html(is_request_authenticated) {
             // SPA fallback: return index.html for client-side routing
-            let mime_header =
-                Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
-                    .expect("Static HTML Content-Type header is valid");
-            let raw = index_file.data.into_owned();
-            let html_str = String::from_utf8_lossy(&raw);
-            let injected = if html_str.contains("<head>") {
-                html_str.replacen(
-                    "<head>",
-                    &format!(
-                        "<head><meta name=\"sarab-token\" content=\"{}\">",
-                        session_token
-                    ),
-                    1,
-                )
-            } else {
-                format!(
-                    "<meta name=\"sarab-token\" content=\"{}\">{}",
-                    session_token, html_str
-                )
-            };
-            let bytes = injected.into_bytes();
-            let len = bytes.len();
-            let resp = Response::new(
-                StatusCode(200),
-                vec![mime_header, cors_header.clone()],
-                Cursor::new(bytes),
-                Some(len),
-                None,
-            );
             let _ = request.respond(resp);
         } else {
             let resp = Response::from_string("404 Not Found")
@@ -1274,11 +1380,44 @@ mod tests {
 
     #[test]
     fn test_session_token_generation() {
-        let token1 = generate_session_token();
-        let token2 = generate_session_token();
+        let token1 = generate_session_token().expect("Cryptographic token generation must succeed");
+        let token2 = generate_session_token().expect("Cryptographic token generation must succeed");
         assert_eq!(token1.len(), 32);
         assert_eq!(token2.len(), 32);
         assert_ne!(token1, token2);
+    }
+
+    #[test]
+    fn test_cookie_and_query_token_parsing() {
+        assert_eq!(
+            parse_cookie_value("sarab_session=test1234; other=foo", "sarab_session"),
+            Some("test1234".to_string())
+        );
+        assert_eq!(
+            parse_cookie_value("other=foo; sarab_session=\"quoted1234\"", "sarab_session"),
+            Some("quoted1234".to_string())
+        );
+        assert_eq!(parse_cookie_value("foo=bar", "sarab_session"), None);
+
+        assert_eq!(
+            parse_query_token("/?token=abc1234"),
+            Some("abc1234".to_string())
+        );
+        assert_eq!(
+            parse_query_token("/api/config?demo=true&token=xyz987&other=1"),
+            Some("xyz987".to_string())
+        );
+        assert_eq!(parse_query_token("/api/config?demo=true"), None);
+    }
+
+    #[test]
+    fn test_unauthenticated_index_html_does_not_leak_token() {
+        let index_file = Asset::get("index.html").expect("index.html must exist");
+        let html_str = std::str::from_utf8(index_file.data.as_ref()).expect("valid utf-8");
+        assert!(
+            !html_str.contains("sarab-token"),
+            "Embedded index.html must not contain static or hardcoded sarab-token"
+        );
     }
 
     #[test]

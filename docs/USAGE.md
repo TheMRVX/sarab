@@ -56,6 +56,7 @@ Do not use a public OSRM demo server as a production dependency. The Project-OSR
 ```powershell
 .\sarab.exe gui --open
 .\sarab.exe web --port 8090
+.\sarab.exe token
 .\sarab.exe service install --port 8090
 .\sarab.exe service start
 .\sarab.exe service status
@@ -63,7 +64,7 @@ Do not use a public OSRM demo server as a production dependency. The Project-OSR
 .\sarab.exe service uninstall
 ```
 
-By default, the dashboard binds to `127.0.0.1:8090`. The application includes local API authentication checks, but the control API was designed for local use; do not expose it to untrusted networks. Interactive route planning may make requests to an external OSRM endpoint, and map tiles are fetched from a third-party provider; avoid uploading sensitive route data without reviewing these dependencies.
+By default, the dashboard binds to `127.0.0.1:8090`. The web dashboard is protected by local authentication with fail-closed CSPRNG tokens and HttpOnly session cookies. When launched via `sarab gui --open`, your browser opens with a token bootstrap parameter that establishes the session. If opened directly or in another browser tab, run `sarab token` to view the active session token and enter it into the dashboard unlock prompt. Map tiles are fetched on-demand from OpenStreetMap contributors; all application assets, fonts (@fontsource/roboto), and stylesheets (Leaflet CSS) are embedded locally.
 
 ## Configuration files
 

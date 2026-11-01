@@ -387,6 +387,27 @@ fn handle_service(args: cli::ServiceArgs) -> Result<()> {
     }
 }
 
+fn handle_token(args: cli::TokenArgs) -> Result<()> {
+    match config::load_session_token() {
+        Ok(token) => {
+            if args.raw {
+                println!("{}", token);
+            } else {
+                println!("[+] Active Sarab Web Dashboard Session Token:");
+                println!("    {}", token);
+                println!("    Stored at: {:?}", config::get_session_token_path());
+            }
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("[-] Could not read session token: {}", e);
+            eprintln!("    The web dashboard server may not be active.");
+            eprintln!("    Start the dashboard with: sarab gui");
+            Err(e)
+        }
+    }
+}
+
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
@@ -401,5 +422,6 @@ fn main() -> Result<()> {
         Commands::Gui(args) | Commands::Web(args) => handle_web(args),
         Commands::Route(args) => handle_route(args),
         Commands::Service(args) => handle_service(args),
+        Commands::Token(args) => handle_token(args),
     }
 }

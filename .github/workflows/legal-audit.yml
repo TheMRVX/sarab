@@ -63,7 +63,7 @@ jobs:
         working-directory: gui
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx --yes license-checker@25.0.1 --production --excludePrivatePackages --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0" --json > ../frontend-license-report.json
+          npx --yes license-checker@25.0.1 --production --excludePrivatePackages --onlyAllow "MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;OFL-1.1" --json > ../frontend-license-report.json
 
       - name: Generate combined third-party notices
         run: |
