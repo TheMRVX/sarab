@@ -155,6 +155,102 @@ def test_local_web_authentication_boundary():
     assert "leaflet/dist/leaflet.css" in main_tsx, "main.tsx missing local leaflet.css import"
     print("  [+] Zero external stylesheet/font dependencies in index.html (100% locally bundled).")
 
+    # 6. Live end-to-end HTTP boundary verification
+    bin_path = APP_DIR / "target" / "debug" / ("sarab.exe" if os.name == "nt" else "sarab")
+    if not bin_path.exists():
+        run(["cargo", "build"], cwd=APP_DIR)
+
+    test_port = 18095
+    server_proc = subprocess.Popen(
+        [str(bin_path), "gui", "--port", str(test_port)],
+        cwd=APP_DIR,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    try:
+        import http.client
+        test_port = 18095
+        conn = http.client.HTTPConnection("127.0.0.1", test_port, timeout=5)
+        started = False
+        for _ in range(30):
+            time.sleep(0.15)
+            try:
+                conn.request("GET", "/api/auth/status")
+                resp = conn.getresponse()
+                resp.read()
+                started = True
+                break
+            except (OSError, http.client.HTTPException):
+                continue
+        assert started, "Test server failed to start within timeout"
+
+        # 6a. Query session token via CLI 'sarab token --raw'
+        token_res = run([str(bin_path), "token", "--raw"], cwd=APP_DIR)
+        valid_token = token_res.stdout.strip()
+        assert len(valid_token) == 32, f"Expected 32-character hex token from CLI, got: {valid_token}"
+
+        # 6b. Unauthenticated GET / must not contain token
+        conn.request("GET", "/")
+        resp = conn.getresponse()
+        html = resp.read().decode("utf-8")
+        assert "sarab-token" not in html, "Unauthenticated GET / leaked sarab-token meta tag"
+        cookie_hdr = resp.getheader("Set-Cookie")
+        assert cookie_hdr is None or "sarab_session" not in cookie_hdr, "Unauthenticated GET / leaked session cookie"
+
+        # 6c. Unauthenticated GET /api/auth/status returns {"authenticated": false}
+        conn.request("GET", "/api/auth/status")
+        resp = conn.getresponse()
+        data = json.loads(resp.read().decode("utf-8"))
+        assert data.get("authenticated") is False, "Unauthenticated /api/auth/status returned true"
+
+        # 6d. Unauthenticated GET /api/config returns 401 Unauthorized
+        conn.request("GET", "/api/config")
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 401, f"Expected 401 Unauthorized for /api/config, got {resp.status}"
+
+        # 6e. Invalid token POST /api/auth/verify returns 401
+        invalid_body = json.dumps({"token": "wrong_token_12345"}).encode("utf-8")
+        conn.request("POST", "/api/auth/verify", body=invalid_body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 401, f"Expected 401 for invalid verify, got {resp.status}"
+
+        # 6f. Valid token POST /api/auth/verify returns 200 with Set-Cookie
+        valid_body = json.dumps({"token": valid_token}).encode("utf-8")
+        conn.request("POST", "/api/auth/verify", body=valid_body, headers={"Content-Type": "application/json"})
+        resp = conn.getresponse()
+        resp.read()
+        assert resp.status == 200
+        cookie = resp.getheader("Set-Cookie") or ""
+        assert "sarab_session=" in cookie
+        assert "HttpOnly" in cookie
+        assert "SameSite=Strict" in cookie
+
+        # 6g. Authenticated GET /?token=<valid_token> returns meta tag and Set-Cookie
+        conn.request("GET", f"/?token={valid_token}")
+        resp = conn.getresponse()
+        auth_html = resp.read().decode("utf-8")
+        assert f'<meta name="sarab-token" content="{valid_token}">' in auth_html
+        auth_cookie = resp.getheader("Set-Cookie") or ""
+        assert f"sarab_session={valid_token}" in auth_cookie
+
+        # 6h. Authenticated GET /api/config with X-Sarab-Token header succeeds
+        conn.request("GET", "/api/config", headers={"X-Sarab-Token": valid_token})
+        resp = conn.getresponse()
+        assert resp.status == 200
+        cfg_data = json.loads(resp.read().decode("utf-8"))
+        assert "latitude" in cfg_data
+
+        conn.close()
+        print("  [+] Live HTTP end-to-end authentication boundary verified (unauthenticated denied, token bootstrap verified).")
+    finally:
+        server_proc.terminate()
+        try:
+            server_proc.wait(timeout=3)
+        except (subprocess.TimeoutExpired, OSError):
+            server_proc.kill()
+
 
 def test_network_privacy_and_hosted_services():
     print("[*] Testing Network Privacy & Hosted Service Consent Boundaries...")
