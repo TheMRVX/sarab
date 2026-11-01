@@ -1,6 +1,19 @@
 name: Release
 
 on:
+  pull_request:
+    branches: [main, docs/20-community-documentation]
+    paths:
+      - 'app/**'
+      - 'driver/**'
+      - 'gui/**'
+      - 'installer/**'
+      - 'docs/LICENSING.md'
+      - 'docs/USAGE.md'
+      - 'scripts/generate_third_party_notices.py'
+      - 'THIRD-PARTY-NOTICES.md'
+      - '.github/workflows/release.yml'
+      - '.github/workflows/legal-audit.yml'
   push:
     tags: [ "v*" ]
   workflow_dispatch:
@@ -20,12 +33,14 @@ concurrency:
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build-and-release:
-    name: Build, Package & Publish Release (x64)
+    name: Build and Package Release (x64)
     runs-on: windows-latest
+    outputs:
+      release_tag: ${{ steps.package.outputs.tag }}
 
     steps:
       - name: Checkout repository
@@ -175,6 +190,7 @@ jobs:
         shell: pwsh
         env:
           INPUT_RELEASE_TAG: ${{ github.event.inputs.release_tag }}
+          INPUT_PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           $packageDir = "release_package"
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
@@ -221,9 +237,15 @@ jobs:
           pause
           "@ | Out-File -FilePath "$packageDir\uninstall.bat" -Encoding ascii
 
-          # Determine version tag
-          $tag = "v1.0.0"
-          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
+          # Derive a non-publishing, unique version for pull-request validation.
+          $cargoToml = Get-Content "app\Cargo.toml" -Raw
+          $versionMatch = [regex]::Match($cargoToml, '(?m)^version\s*=\s*"([^"]+)"')
+          if (-not $versionMatch.Success) { throw "Could not read package version from app\Cargo.toml" }
+          $tag = "v" + $versionMatch.Groups[1].Value
+          if ($env:GITHUB_EVENT_NAME -eq 'pull_request') {
+              if (-not $env:INPUT_PR_NUMBER) { throw "Missing pull request number for release dry-run" }
+              $tag = "$tag-pr.$env:INPUT_PR_NUMBER"
+          } elseif ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME) {
               $tag = $env:GITHUB_REF_NAME
           } elseif ($env:INPUT_RELEASE_TAG) {
               $tag = $env:INPUT_RELEASE_TAG
@@ -277,21 +299,33 @@ jobs:
 
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
-      - name: Upload dry-run artifacts without publishing
-        if: github.event_name == 'workflow_dispatch' && inputs.publish != true
+      - name: Upload release build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-dry-run
+          name: release-build-artifacts
           path: release_assets/*
           if-no-files-found: error
           retention-days: 7
 
+  publish:
+    name: Publish GitHub Release
+    needs: build-and-release
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')) || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-build-artifacts
+          path: release_assets
+
       - name: Publish GitHub Release
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish == true)
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ steps.package.outputs.tag }}
+          TAG: ${{ needs.build-and-release.outputs.release_tag }}
         run: |
           set -euo pipefail
           prerelease=()
