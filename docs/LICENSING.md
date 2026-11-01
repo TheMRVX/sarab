@@ -27,3 +27,11 @@ Review any native driver assets, fonts, icons, service integrations, geospatial 
 ## OpenStreetMap tiles
 
 The Leaflet UI requests https://tile.openstreetmap.org/{z}/{x}/{y}.png and includes visible contributor attribution with a link to https://www.openstreetmap.org/copyright. The OpenStreetMap Foundation tile-use rules (https://operations.osmfoundation.org/policies/tiles/) additionally govern live network requests: preserve a browser Referer, honor caching and rate restrictions, and do not bulk-prefetch. These hosted tiles are not bundled into the product.
+
+## Geocoding and Nominatim
+
+Map search uses a **configured** Nominatim-compatible JSON search endpoint through the frontend build-time setting `VITE_GEOCODING_SEARCH_URL` (HTTPS except localhost). Without configuration, interactive maps and manual coordinates continue to work, while location search reports that a provider is required. Sarab deliberately does **not** default to the public Nominatim service. This setting is embedded at frontend build time; operators must rebuild to change the provider.
+
+The public Nominatim service has a distinct policy (https://operations.osmfoundation.org/policies/nominatim/): no heavy use, **at most one request per second**, identifying application User-Agent or Referer, appropriate attribution, and no autocomplete/systematic queries. The UI only searches on submit and locally limits requests to at least 1.1 seconds apart, but this does **not** enforce a global limit across installations. Browser fetch cannot set User-Agent, and a loopback Referer alone is not reliable app identification. Use a provider authorized for distributed client use, or a properly identified geocoding service with shared limits, privacy terms, and provider attribution. Do not expose confidential queries to an untrusted provider.
+
+For OSM tiles, browser Referer may be the loopback address of the local GUI rather than a public project URL. Validate real packaged traffic, caching and identification against https://operations.osmfoundation.org/policies/tiles/; do not claim that loopback Referer necessarily satisfies the operator-identification requirement.

@@ -44,6 +44,13 @@ view = (repo / "gui/src/components/MapView.tsx").read_text()
 assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in view
 assert "https://www.openstreetmap.org/copyright" in view
 assert "attribution:" in view
+assert "VITE_GEOCODING_SEARCH_URL" in view
+assert "SEARCH_INTERVAL_MS" in view
+assert "nominatim.openstreetmap.org/search" not in view
+for workflow in ("legal-audit.yml", "release.yml"):
+    content = (repo / ".github/workflows" / workflow).read_text()
+    assert "--onlyAllow" in content, f"Missing frontend license enforcement: {workflow}"
+assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release
 assert not re.search(r"attributionControl\s*:\s*false", view)
 
 notice = (repo / "NOTICE").read_text()

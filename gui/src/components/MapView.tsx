@@ -15,6 +15,10 @@ import L from 'leaflet';
 import { Waypoint } from '../types';
 
 // Custom modern SVG Pin Icon for target position
+// Explicit opt-in: select a provider that permits distributed desktop use.
+const geocodingSearchUrl = import.meta.env.VITE_GEOCODING_SEARCH_URL?.trim() || '';
+const SEARCH_INTERVAL_MS = 1100;
+let lastGeocodingRequestAt = 0;
 const createCustomIcon = (color = '#00e5ff') => {
   return L.divIcon({
     className: 'custom-pin-marker',
@@ -170,18 +174,30 @@ export const MapView: React.FC<MapViewProps> = ({
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
+    if (!geocodingSearchUrl) {
+      setSearchError('Search requires a configured geocoding provider');
+      return;
+    }
+    if (isSearching) return;
+    if (Date.now() - lastGeocodingRequestAt < SEARCH_INTERVAL_MS) {
+      setSearchError('Please wait before searching again');
+      return;
+    }
+    lastGeocodingRequestAt = Date.now();
 
     setIsSearching(true);
     setSearchError(null);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        searchQuery
-      )}&limit=1`;
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': `Sarab-GNSS-Suite/1.0.2`,
-        },
-      });
+      const url = new URL(geocodingSearchUrl);
+      if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) {
+        throw new Error('Geocoding endpoint must use HTTPS');
+      }
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('q', searchQuery);
+      url.searchParams.set('limit', '1');
+      // Browser fetch cannot set User-Agent; the provider must identify this app.
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error('Geocoding provider returned an error');
       const data = await res.json();
       if (data && data.length > 0) {
         const newLat = parseFloat(parseFloat(data[0].lat).toFixed(7));
