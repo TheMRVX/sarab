@@ -8,7 +8,7 @@ A test-focused location provider that supplies configurable coordinates to the W
 
 [![CI](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml)
 [![CodeFactor](https://www.codefactor.io/repository/github/themrvx/sarab/badge)](https://www.codefactor.io/repository/github/themrvx/sarab)
-[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-00897B.svg)](#license)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-C2185B.svg)](#license)
 ![Windows 10/11 x64](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D4?logo=windows&logoColor=white)
 [![Rust CLI](https://img.shields.io/badge/CLI-Rust-orange?logo=rust&logoColor=white)](app/)
 [![React + MUI](https://img.shields.io/badge/GUI-React%20%2B%20MUI-007FFF?logo=react&logoColor=white)](gui/)
