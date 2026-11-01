@@ -65,7 +65,38 @@ for workflow in ("legal-audit.yml", "release.yml"):
     assert "--excludePrivatePackages" in content, f"Missing private-project exclusion: {workflow}"
     assert "--onlyAllow" in content, f"Missing frontend license enforcement: {workflow}"
 assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release
+assert "pull_request:" in release
+assert "release-build-artifacts" in release
+assert "INPUT_PR_NUMBER" in release
+assert "contents: read" in release
+assert "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')" in release
 assert not re.search(r"attributionControl\s*:\s*false", view)
+
+web = (repo / "app/src/web.rs").read_text()
+assert "SARAB_OSRM_BASE_URL" in web
+assert "router.project-osrm.org" not in web
+assert '"/api/route/osrm/status"' in web
+assert '.set("User-Agent", &user_agent)' in web
+assert "OSRM_MIN_REQUEST_INTERVAL" in web
+assert "validate_osrm_base_url" in web
+
+route_ui = (repo / "gui/src/components/RouteSimulator.tsx").read_text()
+assert "/api/route/osrm/status" in route_ui
+assert "window.confirm(" in route_ui
+assert "osrmEnabled" in route_ui
+
+licensing = (repo / "docs/LICENSING.md").read_text()
+usage = (repo / "docs/USAGE.md").read_text()
+generator = (repo / "scripts/generate_third_party_notices.py").read_text()
+assert "disabled by default" in licensing
+assert "SARAB_OSRM_BASE_URL" in licensing
+assert "SARAB_OSRM_BASE_URL" in usage
+assert "SARAB_OSRM_BASE_URL" in generator
+assert "VITE_GEOCODING_SEARCH_URL" in generator
+
+notice = (repo / "THIRD-PARTY-NOTICES.md").read_text()
+assert "SARAB_OSRM_BASE_URL" in notice
+assert "VITE_GEOCODING_SEARCH_URL" in notice
 
 notice = (repo / "NOTICE").read_text()
 assert notice.startswith("Sarab (Mirage)")
