@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 use sha2::{Digest, Sha256};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
@@ -24,7 +24,7 @@ fn main() {
     }
 }
 
-fn collect_source_files(dir: &Path, base_dir: &Path, files: &mut BTreeSet<String>) {
+fn collect_files_recursive(dir: &Path, base_dir: &Path, files: &mut BTreeSet<String>) {
     if !dir.exists() {
         return;
     }
@@ -33,11 +33,11 @@ fn collect_source_files(dir: &Path, base_dir: &Path, files: &mut BTreeSet<String
             let path = entry.path();
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
-            if name_str.starts_with('.') {
+            if name_str.starts_with('.') && name_str != ".env" {
                 continue;
             }
             if path.is_dir() {
-                collect_source_files(&path, base_dir, files);
+                collect_files_recursive(&path, base_dir, files);
             } else if path.is_file() {
                 if let Ok(rel) = path.strip_prefix(base_dir) {
                     let normalized_rel = rel.to_string_lossy().replace('\\', "/");
@@ -48,7 +48,11 @@ fn collect_source_files(dir: &Path, base_dir: &Path, files: &mut BTreeSet<String
     }
 }
 
-fn compute_frontend_fingerprint(gui_dir: &Path, files: &BTreeSet<String>) -> String {
+fn compute_source_fingerprint(
+    gui_dir: &Path,
+    files: &BTreeSet<String>,
+    vite_env: &BTreeMap<String, String>,
+) -> String {
     let mut hasher = Sha256::new();
     for rel_path in files {
         let full_path = gui_dir.join(rel_path);
@@ -71,7 +75,41 @@ fn compute_frontend_fingerprint(gui_dir: &Path, files: &BTreeSet<String>) -> Str
         hasher.update(&normalized);
         hasher.update(b"\n");
     }
+
+    for (k, v) in vite_env {
+        let line = format!("env:{}={}\n", k, v);
+        hasher.update(line.as_bytes());
+    }
+
     format!("{:x}", hasher.finalize())
+}
+
+fn compute_dist_fingerprint(dist_dir: &Path) -> (String, BTreeMap<String, String>) {
+    let mut files = BTreeSet::new();
+    collect_files_recursive(dist_dir, dist_dir, &mut files);
+
+    let mut asset_hashes = BTreeMap::new();
+    let mut master_hasher = Sha256::new();
+
+    for rel in files {
+        if rel == ".fingerprint" || rel.starts_with(".git") {
+            continue;
+        }
+        let full_path = dist_dir.join(&rel);
+        let content = fs::read(&full_path).unwrap_or_default();
+        let mut file_hasher = Sha256::new();
+        file_hasher.update(&content);
+        let file_hash = format!("{:x}", file_hasher.finalize());
+
+        master_hasher.update(rel.as_bytes());
+        master_hasher.update(b"\n");
+        master_hasher.update(file_hash.as_bytes());
+        master_hasher.update(b"\n");
+
+        asset_hashes.insert(rel, file_hash);
+    }
+
+    (format!("{:x}", master_hasher.finalize()), asset_hashes)
 }
 
 fn validate_embedded_frontend() {
@@ -83,12 +121,15 @@ fn validate_embedded_frontend() {
     let fingerprint_file = dist_dir.join(".fingerprint");
 
     let src_dir = gui_dir.join("src");
+    let public_dir = gui_dir.join("public");
 
     println!("cargo:rerun-if-changed={}", src_dir.display());
+    println!("cargo:rerun-if-changed={}", public_dir.display());
     println!("cargo:rerun-if-changed={}", dist_dir.display());
     println!("cargo:rerun-if-changed={}", fingerprint_file.display());
     println!("cargo:rerun-if-env-changed=SARAB_STRICT_EMBED");
     println!("cargo:rerun-if-env-changed=SARAB_SKIP_FRONTEND_VERIFY");
+    println!("cargo:rerun-if-env-changed=VITE_DEMO_MODE");
 
     let index_html = dist_dir.join("index.html");
     if !index_html.exists() {
@@ -136,56 +177,157 @@ fn validate_embedded_frontend() {
         );
     }
 
+    let profile = std::env::var("PROFILE").unwrap_or_default();
+    let is_release = profile == "release" || std::env::var("CI").as_deref() == Ok("true");
+
     let skip_verify = std::env::var("SARAB_SKIP_FRONTEND_VERIFY")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
     if skip_verify {
+        if is_release {
+            panic!(
+                "Build integrity security violation: SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed \
+                 in release or CI builds (PROFILE='{}'). Official release packages must never \
+                 weaken frontend build integrity verification.",
+                profile
+            );
+        }
         println!("cargo:warning=SARAB_SKIP_FRONTEND_VERIFY is set. Skipping frontend fingerprint validation.");
         return;
     }
 
     // Collect all source input files
-    let mut files = BTreeSet::new();
+    let mut source_files = BTreeSet::new();
     let static_inputs = [
         "index.html",
         "package.json",
         "package-lock.json",
         "tsconfig.json",
+        "tsconfig.node.json",
         "vite.config.ts",
         "scripts/fingerprint.mjs",
     ];
     for rel in static_inputs {
-        if gui_dir.join(rel).exists() {
-            files.insert(rel.to_string());
+        let full = gui_dir.join(rel);
+        if full.exists() {
+            println!("cargo:rerun-if-changed={}", full.display());
+            source_files.insert(rel.to_string());
         }
     }
-    collect_source_files(&gui_dir.join("src"), &gui_dir, &mut files);
 
-    let expected_fingerprint = compute_frontend_fingerprint(&gui_dir, &files);
+    let env_files = [
+        ".env",
+        ".env.local",
+        ".env.production",
+        ".env.production.local",
+        ".env.development",
+        ".env.development.local",
+        ".env.test",
+        ".env.test.local",
+    ];
+    for rel in env_files {
+        let full = gui_dir.join(rel);
+        if full.exists() {
+            println!("cargo:rerun-if-changed={}", full.display());
+            source_files.insert(rel.to_string());
+        }
+    }
+
+    collect_files_recursive(&public_dir, &gui_dir, &mut source_files);
+    collect_files_recursive(&src_dir, &gui_dir, &mut source_files);
+
+    // Collect applicable Vite/Tauri environment variables
+    let mut vite_env = BTreeMap::new();
+    for (k, v) in std::env::vars() {
+        if k.starts_with("VITE_") || k.starts_with("TAURI_") {
+            println!("cargo:rerun-if-env-changed={}", k);
+            vite_env.insert(k, v);
+        }
+    }
+
+    let expected_source_hash = compute_source_fingerprint(&gui_dir, &source_files, &vite_env);
+    let (expected_dist_hash, actual_dist_assets) = compute_dist_fingerprint(&dist_dir);
 
     if !fingerprint_file.exists() {
         panic!(
             "Build integrity violation: embedded frontend fingerprint file '{}' is missing. \
-             Expected fingerprint: '{}'. Run 'cd gui && npm run build' to regenerate embedded assets.",
+             Expected source hash: '{}'. Run 'cd gui && npm run build' to regenerate embedded assets.",
             fingerprint_file.display(),
-            expected_fingerprint
+            expected_source_hash
         );
     }
 
-    let recorded_fingerprint = fs::read_to_string(&fingerprint_file)
+    let recorded_content = fs::read_to_string(&fingerprint_file)
         .unwrap_or_default()
         .trim()
         .to_string();
 
-    if recorded_fingerprint != expected_fingerprint {
+    if recorded_content.starts_with('{') {
+        let payload: serde_json::Value = serde_json::from_str(&recorded_content).unwrap_or_else(|e| {
+            panic!(
+                "Build integrity error: invalid JSON in '{}': {}. Rebuild frontend with 'cd gui && npm run build'.",
+                fingerprint_file.display(),
+                e
+            )
+        });
+
+        let recorded_source_hash = payload
+            .get("source_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if recorded_source_hash != expected_source_hash {
+            panic!(
+                "Build integrity violation: embedded frontend assets in '{}' are stale or out of sync with source files/environment. \
+                 Expected source hash '{}', but recorded '{}'. \
+                 Run 'cd gui && npm run build' to update embedded assets.",
+                dist_dir.display(),
+                expected_source_hash,
+                recorded_source_hash
+            );
+        }
+
+        let recorded_dist_hash = payload
+            .get("dist_hash")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        if recorded_dist_hash != expected_dist_hash {
+            panic!(
+                "Build integrity violation: embedded frontend output assets in '{}' have been altered or tampered with. \
+                 Expected dist hash '{}', but recorded manifest indicates '{}'. \
+                 Run 'cd gui && npm run build' to regenerate clean assets.",
+                dist_dir.display(),
+                expected_dist_hash,
+                recorded_dist_hash
+            );
+        }
+
+        if let Some(manifest_assets) = payload.get("assets").and_then(|v| v.as_object()) {
+            for (rel_path, expected_file_hash_val) in manifest_assets {
+                let expected_file_hash = expected_file_hash_val.as_str().unwrap_or("");
+                let actual_file_hash = actual_dist_assets
+                    .get(rel_path.as_str())
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
+                if actual_file_hash != expected_file_hash {
+                    panic!(
+                        "Build integrity violation: embedded asset '{}' hash mismatch (actual '{}' != recorded '{}'). \
+                         Run 'cd gui && npm run build' to update embedded assets.",
+                        rel_path,
+                        actual_file_hash,
+                        expected_file_hash
+                    );
+                }
+            }
+        }
+    } else if recorded_content != expected_source_hash {
         panic!(
             "Build integrity violation: embedded frontend assets in '{}' are stale or out of sync with source files. \
              Expected fingerprint '{}', but recorded '{}'. \
              Run 'cd gui && npm run build' to update embedded assets.",
             dist_dir.display(),
-            expected_fingerprint,
-            recorded_fingerprint
+            expected_source_hash,
+            recorded_content
         );
     }
 }

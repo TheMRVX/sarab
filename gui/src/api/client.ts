@@ -26,65 +26,64 @@ export function setDemoMode(enabled: boolean): void {
   }
 }
 
-export function getSessionToken(): string {
-  if (inMemoryToken) return inMemoryToken;
-
-  if (typeof window !== 'undefined') {
-    // 1. URL query parameter (?token=...)
+/**
+ * Extracts session token from URL query parameters (e.g. initial CLI launch ?token=...)
+ * and immediately scrubs it from the browser address bar and history via replaceState.
+ */
+export function initAuthFromLocation(): string {
+  if (typeof window !== 'undefined' && window.location) {
     try {
-      const urlParams = new URLSearchParams(window.location.search);
-      const queryToken = urlParams.get('token');
+      const url = new URL(window.location.href);
+      const queryToken = url.searchParams.get('token');
       if (queryToken && queryToken.trim().length > 0) {
-        inMemoryToken = queryToken.trim();
-        try {
-          sessionStorage.setItem('sarab_token', inMemoryToken);
-        } catch {}
-        return inMemoryToken;
-      }
-    } catch {}
-
-    // 2. Meta tag injected by authenticated server
-    try {
-      const meta = document.querySelector('meta[name="sarab-token"]');
-      const metaToken = meta?.getAttribute('content')?.trim();
-      if (metaToken && metaToken.length > 0) {
-        inMemoryToken = metaToken;
-        try {
-          sessionStorage.setItem('sarab_token', inMemoryToken);
-        } catch {}
-        return inMemoryToken;
-      }
-    } catch {}
-
-    // 3. Stored in sessionStorage
-    try {
-      const stored = sessionStorage.getItem('sarab_token')?.trim();
-      if (stored && stored.length > 0) {
-        inMemoryToken = stored;
-        return inMemoryToken;
+        const token = queryToken.trim();
+        inMemoryToken = token;
+        url.searchParams.delete('token');
+        const cleanUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', cleanUrl);
+        }
+        return token;
       }
     } catch {}
   }
+  return inMemoryToken || '';
+}
 
-  return '';
+export function getSessionToken(): string {
+  if (inMemoryToken) return inMemoryToken;
+  return initAuthFromLocation();
 }
 
 export function setSessionToken(token: string): void {
-  const clean = token.trim();
-  inMemoryToken = clean;
-  if (typeof window !== 'undefined') {
-    try {
-      if (clean) {
-        sessionStorage.setItem('sarab_token', clean);
-      } else {
-        sessionStorage.removeItem('sarab_token');
-      }
-    } catch {}
-  }
+  inMemoryToken = token.trim();
 }
 
 export async function checkAuthStatus(): Promise<boolean> {
   if (isDemoMode()) return true;
+
+  // 1. Check if token was passed in query parameter and sanitize URL immediately
+  const initialToken = initAuthFromLocation();
+  if (initialToken) {
+    const ok = await verifyToken(initialToken);
+    if (ok) return true;
+  }
+
+  // 2. Query /api/auth/session with credentials (same-origin cookie)
+  if (!inMemoryToken) {
+    try {
+      const res = await apiFetch('/api/auth/session');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.authenticated && data.token) {
+          inMemoryToken = data.token;
+          return true;
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Fallback check /api/auth/status
   try {
     const res = await apiFetch('/api/auth/status');
     if (res.ok) {
@@ -92,6 +91,7 @@ export async function checkAuthStatus(): Promise<boolean> {
       return !!data.authenticated;
     }
   } catch {}
+
   return false;
 }
 
