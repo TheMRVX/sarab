@@ -9,6 +9,11 @@ on:
       - 'scripts/check_docs.py'
   push:
     branches: [main, legal/license-compliance-audit]
+    paths:
+      - '**/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/workflows/docs.yml'
+      - 'scripts/check_docs.py'
   workflow_dispatch:
 
 permissions:
