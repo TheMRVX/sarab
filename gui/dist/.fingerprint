@@ -1,9 +1,8 @@
 {
   "version": 1,
-  "source_hash": "9e3af3347d9e15158a3928b2f398c8442095b64bb1d940a1d5d5f04ab0572de8",
+  "source_hash": "786aa2975da2fe87a849a5e1b0381bf91fd110c1160b743b7a02e7ed04575e89",
   "dist_hash": "aca45b7b99b544c2ecb17ae6e2f6664a34ac50cf574c22be668e308f1e372b8f",
   "build_env": {
-    "node_version": "v22.23.3",
     "vite_env": {}
   },
   "assets": {

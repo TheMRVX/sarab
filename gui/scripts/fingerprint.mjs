@@ -158,7 +158,6 @@ export function generateFingerprintPayload(guiRoot = GUI_ROOT, env = process.env
     source_hash: sourceHash,
     dist_hash: distHash,
     build_env: {
-      node_version: process.version,
       vite_env: viteEnv,
     },
     assets: assetHashes,
