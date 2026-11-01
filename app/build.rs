@@ -305,7 +305,10 @@ fn validate_embedded_frontend() {
         if let Some(manifest_assets) = payload.get("assets").and_then(|v| v.as_object()) {
             for (rel_path, expected_file_hash_val) in manifest_assets {
                 let expected_file_hash = expected_file_hash_val.as_str().unwrap_or("");
-                let actual_file_hash = actual_dist_assets.get(rel_path.as_str()).map(|s| s.as_str()).unwrap_or("");
+                let actual_file_hash = actual_dist_assets
+                    .get(rel_path.as_str())
+                    .map(|s| s.as_str())
+                    .unwrap_or("");
                 if actual_file_hash != expected_file_hash {
                     panic!(
                         "Build integrity violation: embedded asset '{}' hash mismatch (actual '{}' != recorded '{}'). \

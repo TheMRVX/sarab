@@ -159,11 +159,7 @@ pub fn parse_query_token(url: &str) -> Option<String> {
 pub fn make_session_cookie_header(token: &str) -> Header {
     Header::from_bytes(
         &b"Set-Cookie"[..],
-        format!(
-            "sarab_session={}; HttpOnly; SameSite=Strict; Path=/",
-            token
-        )
-        .as_bytes(),
+        format!("sarab_session={}; HttpOnly; SameSite=Strict; Path=/", token).as_bytes(),
     )
     .expect("Static Set-Cookie header is valid")
 }
@@ -481,12 +477,13 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Origin validation: block cross-origin requests from foreign ports or arbitrary websites
         if let Some(ref origin) = get_header_value(&request, "Origin") {
             if !is_allowed_origin(origin, port) {
-                let mut forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
-                    .with_status_code(StatusCode(403))
-                    .with_header(
-                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                            .expect("Static JSON Content-Type header is valid"),
-                    );
+                let mut forbidden_resp =
+                    Response::from_string(error_json("Forbidden: Invalid Origin"))
+                        .with_status_code(StatusCode(403))
+                        .with_header(
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .expect("Static JSON Content-Type header is valid"),
+                        );
                 for h in security_headers() {
                     forbidden_resp.add_header(h);
                 }
@@ -498,12 +495,13 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Sec-Fetch-Site validation: block cross-site requests
         if let Some(ref site) = get_header_value(&request, "Sec-Fetch-Site") {
             if site.eq_ignore_ascii_case("cross-site") {
-                let mut forbidden_resp = Response::from_string(error_json("Forbidden: Cross-Site Request Blocked"))
-                    .with_status_code(StatusCode(403))
-                    .with_header(
-                        Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
-                            .expect("Static JSON Content-Type header is valid"),
-                    );
+                let mut forbidden_resp =
+                    Response::from_string(error_json("Forbidden: Cross-Site Request Blocked"))
+                        .with_status_code(StatusCode(403))
+                        .with_header(
+                            Header::from_bytes(&b"Content-Type"[..], &b"application/json"[..])
+                                .expect("Static JSON Content-Type header is valid"),
+                        );
                 for h in security_headers() {
                     forbidden_resp.add_header(h);
                 }
@@ -522,18 +520,17 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         )
         .expect("CORS Allow-Origin header is valid");
 
-        let cors_credentials = Header::from_bytes(
-            &b"Access-Control-Allow-Credentials"[..],
-            &b"true"[..],
-        )
-        .expect("CORS Allow-Credentials header is valid");
+        let cors_credentials =
+            Header::from_bytes(&b"Access-Control-Allow-Credentials"[..], &b"true"[..])
+                .expect("CORS Allow-Credentials header is valid");
 
         // Handle CORS preflight
         if request.method() == &Method::Options {
             if let Some(ref origin) = get_header_value(&request, "Origin") {
                 if !is_allowed_origin(origin, port) {
-                    let mut forbidden_resp = Response::from_string(error_json("Forbidden: Invalid Origin"))
-                        .with_status_code(StatusCode(403));
+                    let mut forbidden_resp =
+                        Response::from_string(error_json("Forbidden: Invalid Origin"))
+                            .with_status_code(StatusCode(403));
                     for h in security_headers() {
                         forbidden_resp.add_header(h);
                     }
@@ -643,7 +640,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     })
                 };
                 let mut resp = Response::from_string(resp_data.to_string())
-                    .with_status_code(if is_auth { StatusCode(200) } else { StatusCode(401) })
+                    .with_status_code(if is_auth {
+                        StatusCode(200)
+                    } else {
+                        StatusCode(401)
+                    })
                     .with_header(json_header)
                     .with_header(cors_header.clone())
                     .with_header(cors_credentials.clone());
@@ -663,13 +664,11 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             };
 
             if !authorized {
-                let mut unauth_resp = Response::from_string(error_json(
-                    if is_mutating {
-                        "Unauthorized: Mutating API request requires X-Sarab-Token or Bearer header"
-                    } else {
-                        "Unauthorized: Missing or invalid session token"
-                    }
-                ))
+                let mut unauth_resp = Response::from_string(error_json(if is_mutating {
+                    "Unauthorized: Mutating API request requires X-Sarab-Token or Bearer header"
+                } else {
+                    "Unauthorized: Missing or invalid session token"
+                }))
                 .with_status_code(StatusCode(401))
                 .with_header(json_header)
                 .with_header(cors_header.clone())
@@ -1382,13 +1381,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             let len = data.len();
             let mut headers = vec![mime_header, cors_header.clone(), cors_credentials.clone()];
             headers.extend(security_headers());
-            let resp = Response::new(
-                StatusCode(200),
-                headers,
-                Cursor::new(data),
-                Some(len),
-                None,
-            );
+            let resp = Response::new(StatusCode(200), headers, Cursor::new(data), Some(len), None);
             let _ = request.respond(resp);
         } else if let Some(resp) = serve_index_html(is_request_authenticated) {
             // SPA fallback: return index.html for client-side routing
