@@ -49,7 +49,7 @@ When you click **Snap to Roads**, the dashboard asks for confirmation before sen
 
 If Sarab runs as a Windows service, a user-session environment variable is not inherited by an already-running service. Configure `SARAB_OSRM_BASE_URL` in the machine environment or the service's own environment, then restart the service. Changing the environment for your interactive PowerShell session only affects Sarab processes launched from that session.
 
-Do not use the public OSRM demo server as a production dependency. Its published guidance restricts use to reasonable non-commercial workloads, sets a maximum of one request per second, and provides no uptime or data-update guarantees. Prefer a self-hosted or otherwise authorized provider for distributed use. See [the licensing and hosted-services notes](LICENSING.md#road-snapping-and-routing-osrm).
+Do not use a public OSRM demo server as a production dependency. The Project-OSRM demo wiki (last edited in 2020) describes reasonable non-commercial use, a one-request-per-second maximum, and no uptime/latency/data-update guarantees. The current FOSSGIS routing-server page says requests are saved in logs, requires an identifying User-Agent and (where applicable) Referer, prohibits scraping/heavy use, and requires attribution plus a link to improve the map; its full usage policy is in German. Review the current operator terms before configuring a shared demo endpoint. Sarab's 1.1-second throttle is per process, not global across installations. Prefer a self-hosted or explicitly authorized provider for distributed use. See [the licensing and hosted-services notes](LICENSING.md#road-snapping-and-routing-osrm).
 
 ## Dashboard and service
 

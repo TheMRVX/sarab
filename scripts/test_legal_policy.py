@@ -46,6 +46,7 @@ assert "contents: read" in release
 view = (repo / "gui/src/components/MapView.tsx").read_text()
 assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in view
 assert "https://www.openstreetmap.org/copyright" in view
+assert "https://www.openstreetmap.org/edit" in view
 assert "attribution:" in view
 assert "VITE_GEOCODING_SEARCH_URL" in view
 assert "SEARCH_INTERVAL_MS" in view
@@ -65,6 +66,8 @@ route_ui = (repo / "gui/src/components/RouteSimulator.tsx").read_text()
 assert "/api/route/osrm/status" in route_ui
 assert "window.confirm(" in route_ui
 assert "osrmEnabled" in route_ui
+assert "https://project-osrm.org/" in route_ui
+assert "https://www.openstreetmap.org/edit" in route_ui
 
 for workflow in ("legal-audit.yml", "release.yml"):
     content = (repo / ".github/workflows" / workflow).read_text()

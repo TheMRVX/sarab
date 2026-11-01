@@ -520,7 +520,9 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       )}
       {osrmEnabled && (
         <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-          Routing engine: OSRM · Map data: © OpenStreetMap contributors
+          Routing by <a href="https://project-osrm.org/" target="_blank" rel="noreferrer">OSRM</a>
+          {' · '}© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap contributors</a>
+          {' · '}<a href="https://www.openstreetmap.org/edit" target="_blank" rel="noreferrer">Improve this map</a>
         </Typography>
       )}
 

@@ -95,7 +95,7 @@ export const MapView: React.FC<MapViewProps> = ({
     // OSM standard tiles: keep attribution visible and follow the OSM tile usage policy.
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | <a href="https://www.openstreetmap.org/edit">Improve this map</a>',
       maxZoom: 19,
       className: 'dark-tile-layer',
     }).addTo(map);
