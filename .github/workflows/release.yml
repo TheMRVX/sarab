@@ -8,8 +8,6 @@ on:
       - 'driver/**'
       - 'gui/**'
       - 'installer/**'
-      - 'docs/LICENSING.md'
-      - 'docs/USAGE.md'
       - 'scripts/generate_third_party_notices.py'
       - 'THIRD-PARTY-NOTICES.md'
       - '.github/workflows/release.yml'
