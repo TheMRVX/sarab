@@ -63,6 +63,8 @@ jobs:
           cargo clippy --locked -- -D warnings
 
       - name: Run Rust Unit Tests
+        env:
+          SARAB_STRICT_EMBED: 1
         run: |
           cd app
           cargo test --locked --verbose
@@ -99,6 +101,8 @@ jobs:
 
       - name: Build Rust CLI & Service (Release)
         shell: cmd
+        env:
+          SARAB_STRICT_EMBED: 1
         run: |
           cd app
           cargo build --release --locked
