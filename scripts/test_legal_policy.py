@@ -38,7 +38,8 @@ assert 'Copy-Item "LICENSE-MIT"' in release
 assert '"LICENSE-CHOICE.txt"' in release
 assert "Publish GitHub Release" in release
 assert "inputs.publish == true" in release
-assert "Upload dry-run artifacts without publishing" in release
+assert "Upload release build artifacts" in release
+assert "branches: [legal/license-compliance-audit]" in release
 
 view = (repo / "gui/src/components/MapView.tsx").read_text()
 assert "https://tile.openstreetmap.org/{z}/{x}/{y}.png" in view
