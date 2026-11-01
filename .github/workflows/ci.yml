@@ -2,12 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ "main" ]
-    paths:
-      - 'app/**'
-      - 'driver/**'
-      - 'gui/**'
-      - '.github/workflows/ci.yml'
+    branches: [ "main", "legal/license-compliance-audit" ]
   pull_request:
     paths:
       - 'app/**'
@@ -56,6 +51,10 @@ jobs:
           cd gui
           npm ci
           npm run build
+
+      - name: Verify Web GUI build consistency
+        run: |
+          git diff --exit-code --ignore-space-at-eol -- gui/dist
 
       - name: Check Rust formatting & Clippy lints
         run: |

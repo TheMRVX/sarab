@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   Box,

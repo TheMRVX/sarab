@@ -34,6 +34,23 @@ Run from an elevated PowerShell terminal on an authorized test device with the d
 
 The `route play` command requires `--file` and takes `--speed` (km/h) and optional `--loop-route` as defined in the current CLI. The `route status` and `route stop` commands talk to the local daemon (if running). The headless `route play` command runs in its own process; see the source for process lifecycle details.
 
+### Optional road snapping
+
+The dashboard's **Snap to Roads** feature is disabled by default. To enable it, configure an OSRM-compatible endpoint before starting Sarab:
+
+```powershell
+$env:SARAB_OSRM_BASE_URL = "https://your-authorized-osrm.example"
+.\sarab.exe gui --open
+```
+
+For a locally hosted OSRM instance, an HTTP loopback endpoint is also accepted (for example, `http://127.0.0.1:5000`). Remote endpoints must use HTTPS. Restart Sarab after changing the environment variable.
+
+When you click **Snap to Roads**, the dashboard asks for confirmation before sending all route waypoint coordinates to the configured provider. The provider may log those coordinates. Sarab identifies itself with an application-specific User-Agent and project Referer, and enforces a 1.1-second minimum between requests per process. This local limit does not coordinate traffic across installations.
+
+If Sarab runs as a Windows service, a user-session environment variable is not inherited by an already-running service. Configure `SARAB_OSRM_BASE_URL` in the machine environment or the service's own environment, then restart the service. Changing the environment for your interactive PowerShell session only affects Sarab processes launched from that session.
+
+Do not use a public OSRM demo server as a production dependency. The Project-OSRM demo wiki (last edited in 2020) describes reasonable non-commercial use, a one-request-per-second maximum, and no uptime/latency/data-update guarantees. The current FOSSGIS routing-server page says requests are saved in logs, requires an identifying User-Agent and (where applicable) Referer, prohibits scraping/heavy use, and requires attribution plus a link to improve the map; its full usage policy is in German. Review the current operator terms before configuring a shared demo endpoint. Sarab's 1.1-second throttle is per process, not global across installations. Prefer a self-hosted or explicitly authorized provider for distributed use. See [the licensing and hosted-services notes](LICENSING.md#road-snapping-and-routing-osrm).
+
 ## Dashboard and service
 
 ```powershell

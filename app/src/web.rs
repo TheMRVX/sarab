@@ -1,8 +1,11 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 use anyhow::Result;
 use mime_guess::from_path;
 use rust_embed::RustEmbed;
 use serde::{Deserialize, Serialize};
 use std::io::{Cursor, Read};
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 use crate::config::{validate_coordinates, SpoofConfig};
@@ -10,6 +13,8 @@ use crate::{driver_comm, installer, reader};
 
 const MAX_JSON_BODY_SIZE: u64 = 64 * 1024; // 64 KB
 const MAX_GPX_BODY_SIZE: u64 = 5 * 1024 * 1024; // 5 MB
+const OSRM_MIN_REQUEST_INTERVAL: Duration = Duration::from_millis(1100);
+static LAST_OSRM_REQUEST_AT: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
 
 #[derive(RustEmbed)]
 #[folder = "../gui/dist/"]
@@ -215,6 +220,84 @@ fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> bool {
 
 fn error_json(msg: impl ToString) -> String {
     serde_json::json!({ "error": msg.to_string() }).to_string()
+}
+
+fn is_loopback_osrm_authority(authority: &str) -> bool {
+    let valid_port = |port: &str| port.parse::<u16>().map(|value| value != 0).unwrap_or(false);
+
+    for host in ["localhost", "127.0.0.1"] {
+        if authority == host {
+            return true;
+        }
+        if let Some(port) = authority.strip_prefix(&format!("{}:", host)) {
+            return valid_port(port);
+        }
+    }
+
+    if authority == "[::1]" {
+        return true;
+    }
+    authority
+        .strip_prefix("[::1]:")
+        .map(valid_port)
+        .unwrap_or(false)
+}
+
+fn validate_osrm_base_url(raw: &str) -> Result<String, &'static str> {
+    let value = raw.trim().trim_end_matches('/');
+    if value.is_empty() {
+        return Err("SARAB_OSRM_BASE_URL is empty");
+    }
+    if value
+        .chars()
+        .any(|ch| ch.is_whitespace() || matches!(ch, '?' | '#' | '@') || ch == char::from(92))
+    {
+        return Err(
+            "SARAB_OSRM_BASE_URL must be a base URL without credentials, query, or fragment",
+        );
+    }
+
+    let (scheme, remainder) = value
+        .split_once("://")
+        .ok_or("SARAB_OSRM_BASE_URL must be an absolute HTTP(S) URL")?;
+    let authority = remainder.split('/').next().unwrap_or("");
+    if authority.is_empty() {
+        return Err("SARAB_OSRM_BASE_URL must include a host");
+    }
+
+    let secure = scheme == "https";
+    let local_http = scheme == "http" && is_loopback_osrm_authority(authority);
+    if !secure && !local_http {
+        return Err("Use HTTPS for remote OSRM endpoints; HTTP is allowed only for loopback hosts");
+    }
+
+    Ok(value.to_string())
+}
+
+fn configured_osrm_base_url() -> Result<Option<String>, &'static str> {
+    match std::env::var("SARAB_OSRM_BASE_URL") {
+        Ok(value) if value.trim().is_empty() => Ok(None),
+        Ok(value) => validate_osrm_base_url(&value).map(Some),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(_) => Err("SARAB_OSRM_BASE_URL is not valid Unicode text"),
+    }
+}
+
+fn reserve_osrm_request_slot() -> bool {
+    let limiter = LAST_OSRM_REQUEST_AT.get_or_init(|| Mutex::new(None));
+    let now = Instant::now();
+    let Ok(mut last_request) = limiter.lock() else {
+        return false;
+    };
+
+    if let Some(previous) = last_request.as_ref() {
+        if now.duration_since(*previous) < OSRM_MIN_REQUEST_INTERVAL {
+            return false;
+        }
+    }
+
+    *last_request = Some(now);
+    true
 }
 
 fn get_current_telemetry(
@@ -664,6 +747,26 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     }
                 }
 
+                (&Method::Get, "/api/route/osrm/status") => {
+                    let (enabled, message) = match configured_osrm_base_url() {
+                        Ok(Some(_)) => (true, None),
+                        Ok(None) => (
+                            false,
+                            Some("Road snapping is disabled. Configure SARAB_OSRM_BASE_URL to enable it."),
+                        ),
+                        Err(message) => (false, Some(message)),
+                    };
+                    let body = serde_json::json!({
+                        "enabled": enabled,
+                        "message": message,
+                    })
+                    .to_string();
+                    let resp = Response::from_string(body)
+                        .with_header(json_header)
+                        .with_header(cors_header.clone());
+                    let _ = request.respond(resp);
+                }
+
                 (&Method::Post, "/api/route/osrm") => {
                     #[derive(Deserialize)]
                     struct OsrmRequest {
@@ -692,6 +795,69 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             let _ = request.respond(resp);
                             continue;
                         }
+                        if osrm_req.coordinates.iter().any(|point| {
+                            !point[0].is_finite()
+                                || !point[1].is_finite()
+                                || !(-90.0..=90.0).contains(&point[0])
+                                || !(-180.0..=180.0).contains(&point[1])
+                        }) {
+                            let resp = Response::from_string(error_json(
+                                "OSRM coordinates must be finite latitude/longitude pairs",
+                            ))
+                            .with_status_code(StatusCode(400))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                            let _ = request.respond(resp);
+                            continue;
+                        }
+
+                        let prof = match osrm_req.profile.as_str() {
+                            "walking" => "foot",
+                            "cycling" => "bike",
+                            "driving" => "driving",
+                            _ => {
+                                let resp =
+                                    Response::from_string(error_json("Unsupported OSRM profile"))
+                                        .with_status_code(StatusCode(400))
+                                        .with_header(json_header)
+                                        .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                                continue;
+                            }
+                        };
+
+                        let base_url = match configured_osrm_base_url() {
+                            Ok(Some(value)) => value,
+                            Ok(None) => {
+                                let resp = Response::from_string(error_json(
+                                    "Road snapping is disabled. Configure SARAB_OSRM_BASE_URL with an authorized OSRM-compatible endpoint.",
+                                ))
+                                .with_status_code(StatusCode(503))
+                                .with_header(json_header)
+                                .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                                continue;
+                            }
+                            Err(message) => {
+                                let resp = Response::from_string(error_json(message))
+                                    .with_status_code(StatusCode(500))
+                                    .with_header(json_header)
+                                    .with_header(cors_header.clone());
+                                let _ = request.respond(resp);
+                                continue;
+                            }
+                        };
+
+                        if !reserve_osrm_request_slot() {
+                            let resp = Response::from_string(error_json(
+                                "Road snapping is rate-limited to one request per 1.1 seconds per Sarab process",
+                            ))
+                            .with_status_code(StatusCode(429))
+                            .with_header(json_header)
+                            .with_header(cors_header.clone());
+                            let _ = request.respond(resp);
+                            continue;
+                        }
 
                         let coord_str = osrm_req
                             .coordinates
@@ -700,19 +866,19 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                             .collect::<Vec<_>>()
                             .join(";");
 
-                        let prof = match osrm_req.profile.as_str() {
-                            "walking" => "foot",
-                            "cycling" => "bike",
-                            _ => "driving",
-                        };
-
                         let osrm_url = format!(
-                            "https://router.project-osrm.org/route/v1/{}/{}?overview=full&geometries=geojson",
-                            prof, coord_str
+                            "{}/route/v1/{}/{}?overview=full&geometries=geojson",
+                            base_url, prof, coord_str
+                        );
+                        let user_agent = format!(
+                            "Sarab/{} (+https://github.com/TheMRVX/sarab)",
+                            env!("CARGO_PKG_VERSION")
                         );
 
                         match ureq::get(&osrm_url)
-                            .timeout(std::time::Duration::from_secs(10))
+                            .set("User-Agent", &user_agent)
+                            .set("Referer", "https://github.com/TheMRVX/sarab/")
+                            .timeout(Duration::from_secs(15))
                             .call()
                         {
                             Ok(res) => {
@@ -1136,6 +1302,26 @@ mod tests {
     }
 
     #[test]
+    fn osrm_endpoint_requires_explicit_secure_configuration() {
+        assert_eq!(
+            validate_osrm_base_url("https://routing.example.test"),
+            Ok("https://routing.example.test".to_string())
+        );
+        assert_eq!(
+            validate_osrm_base_url("https://routing.example.test/osrm/"),
+            Ok("https://routing.example.test/osrm".to_string())
+        );
+        assert_eq!(
+            validate_osrm_base_url("http://127.0.0.1:5000"),
+            Ok("http://127.0.0.1:5000".to_string())
+        );
+        assert!(validate_osrm_base_url("http://router.example.test").is_err());
+        assert!(validate_osrm_base_url("https://user:pass@routing.example.test").is_err());
+        assert!(validate_osrm_base_url("https://routing.example.test?token=secret").is_err());
+        assert!(validate_osrm_base_url("not-a-url").is_err());
+    }
+
+    #[test]
     fn test_allowed_host_validation() {
         assert!(is_allowed_host("localhost"));
         assert!(is_allowed_host("localhost:8090"));
@@ -1151,5 +1337,33 @@ mod tests {
         assert!(!is_allowed_host("attacker.local"));
         assert!(!is_allowed_host("localhost:badport"));
         assert!(!is_allowed_host(""));
+    }
+
+    #[test]
+    fn test_embedded_frontend_assets_integrity() {
+        let index_file =
+            Asset::get("index.html").expect("index.html must be present in embedded assets");
+        let html =
+            std::str::from_utf8(index_file.data.as_ref()).expect("index.html must be valid utf-8");
+        assert!(html.contains("<div id=\"root\"></div>"));
+
+        let mut js_bundle_found = false;
+        for file_path in Asset::iter() {
+            if file_path.ends_with(".js") {
+                js_bundle_found = true;
+                let js_file = Asset::get(&file_path).expect("Asset must be loadable");
+                let content = std::str::from_utf8(js_file.data.as_ref())
+                    .expect("JS asset must be valid utf-8");
+                assert!(
+                    !content.contains("nominatim.openstreetmap.org"),
+                    "Embedded JS asset {} must not contain nominatim.openstreetmap.org",
+                    file_path
+                );
+            }
+        }
+        assert!(
+            js_bundle_found,
+            "At least one JS bundle must be embedded in assets"
+        );
     }
 }

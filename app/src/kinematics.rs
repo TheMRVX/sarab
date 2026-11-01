@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 pub const EARTH_RADIUS_METERS: f64 = 6_371_000.0;
 
 /// Calculates great-circle distance between two coordinates in meters via Haversine formula.

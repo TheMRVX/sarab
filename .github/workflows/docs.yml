@@ -8,7 +8,7 @@ on:
       - '.github/workflows/docs.yml'
       - 'scripts/check_docs.py'
   push:
-    branches: [main]
+    branches: [main, legal/license-compliance-audit]
     paths:
       - '**/*.md'
       - '.github/ISSUE_TEMPLATE/**'

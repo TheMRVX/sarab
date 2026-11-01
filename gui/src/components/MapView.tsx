@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Box,
@@ -12,6 +13,11 @@ import SearchIcon from '@mui/icons-material/Search';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import L from 'leaflet';
 import { Waypoint } from '../types';
+
+// Explicit opt-in: select a provider that permits distributed desktop use.
+const geocodingSearchUrl = import.meta.env.VITE_GEOCODING_SEARCH_URL?.trim() || '';
+const SEARCH_INTERVAL_MS = 1100;
+let lastGeocodingRequestAt = 0;
 
 // Custom modern SVG Pin Icon for target position
 const createCustomIcon = (color = '#00e5ff') => {
@@ -86,10 +92,10 @@ export const MapView: React.FC<MapViewProps> = ({
     });
     mapRef.current = map;
 
-    // OpenStreetMap dark-style tiles (100% free, BSD/ODbL compliant, no external non-free code)
+    // OSM standard tiles: keep attribution visible and follow the OSM tile usage policy.
     L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | <a href="https://www.openstreetmap.org/edit">Improve this map</a>',
       maxZoom: 19,
       className: 'dark-tile-layer',
     }).addTo(map);
@@ -169,18 +175,30 @@ export const MapView: React.FC<MapViewProps> = ({
   const handleSearch = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     if (!searchQuery.trim()) return;
+    if (!geocodingSearchUrl) {
+      setSearchError('Search requires a configured geocoding provider');
+      return;
+    }
+    if (isSearching) return;
+    if (Date.now() - lastGeocodingRequestAt < SEARCH_INTERVAL_MS) {
+      setSearchError('Please wait before searching again');
+      return;
+    }
+    lastGeocodingRequestAt = Date.now();
 
     setIsSearching(true);
     setSearchError(null);
     try {
-      const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
-        searchQuery
-      )}&limit=1`;
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': `Sarab-GNSS-Suite/1.0.2`,
-        },
-      });
+      const url = new URL(geocodingSearchUrl);
+      if (url.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(url.hostname)) {
+        throw new Error('Geocoding endpoint must use HTTPS');
+      }
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('q', searchQuery);
+      url.searchParams.set('limit', '1');
+      // Browser fetch cannot set User-Agent; the provider must identify this app.
+      const res = await fetch(url.toString());
+      if (!res.ok) throw new Error('Geocoding provider returned an error');
       const data = await res.json();
       if (data && data.length > 0) {
         const newLat = parseFloat(parseFloat(data[0].lat).toFixed(7));
@@ -208,71 +226,73 @@ export const MapView: React.FC<MapViewProps> = ({
         border: '1px solid rgba(255, 255, 255, 0.08)',
       }}
     >
-      {/* Search Bar Overlay */}
-      <Box
-        component="form"
-        onSubmit={handleSearch}
-        sx={{
-          position: 'absolute',
-          top: 16,
-          left: 16,
-          right: { xs: 16, sm: 'auto' },
-          zIndex: 1000,
-          width: { sm: 340 },
-        }}
-      >
-        <Paper
-          elevation={4}
+      {/* Search Bar Overlay: shown only when a geocoding provider is configured at build time. */}
+      {geocodingSearchUrl && (
+        <Box
+          component="form"
+          onSubmit={handleSearch}
           sx={{
-            display: 'flex',
-            alignItems: 'center',
-            p: '2px 4px',
-            bgcolor: 'background.paper',
-            borderRadius: 2,
-            border: '1px solid rgba(0, 229, 255, 0.25)',
+            position: 'absolute',
+            top: 16,
+            left: 16,
+            right: { xs: 16, sm: 'auto' },
+            zIndex: 1000,
+            width: { sm: 340 },
           }}
         >
-          <TextField
-            fullWidth
-            size="small"
-            placeholder="Search city, address, or landmark..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            variant="standard"
-            InputProps={{
-              disableUnderline: true,
-              sx: { px: 1, fontSize: '0.9rem' },
-              endAdornment: (
-                <InputAdornment position="end">
-                  {isSearching ? (
-                    <CircularProgress size={20} color="primary" />
-                  ) : (
-                    <IconButton size="small" onClick={() => handleSearch()} color="primary">
-                      <SearchIcon fontSize="small" />
-                    </IconButton>
-                  )}
-                </InputAdornment>
-              ),
-            }}
-          />
-        </Paper>
-        {searchError && (
-          <Typography
-            variant="caption"
+          <Paper
+            elevation={4}
             sx={{
-              display: 'block',
-              mt: 0.5,
-              ml: 1,
-              color: 'error.main',
-              bgcolor: 'rgba(0,0,0,0.8)',
-              px: 1,
-              borderRadius: 1,
+              display: 'flex',
+              alignItems: 'center',
+              p: '2px 4px',
+              bgcolor: 'background.paper',
+              borderRadius: 2,
+              border: '1px solid rgba(0, 229, 255, 0.25)',
             }}
           >
-            {searchError}
-          </Typography>
-        )}
-      </Box>
+            <TextField
+              fullWidth
+              size="small"
+              placeholder="Search city, address, or landmark..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              variant="standard"
+              InputProps={{
+                disableUnderline: true,
+                sx: { px: 1, fontSize: '0.9rem' },
+                endAdornment: (
+                  <InputAdornment position="end">
+                    {isSearching ? (
+                      <CircularProgress size={20} color="primary" />
+                    ) : (
+                      <IconButton size="small" onClick={() => handleSearch()} color="primary">
+                        <SearchIcon fontSize="small" />
+                      </IconButton>
+                    )}
+                  </InputAdornment>
+                ),
+              }}
+            />
+          </Paper>
+          {searchError && (
+            <Typography
+              variant="caption"
+              sx={{
+                display: 'block',
+                mt: 0.5,
+                ml: 1,
+                color: 'error.main',
+                bgcolor: 'rgba(0,0,0,0.8)',
+                px: 1,
+                borderRadius: 1,
+              }}
+            >
+              {searchError}
+            </Typography>
+          )}
+        </Box>
+      )}
 
       {/* Recenter Quick Button */}
       <Box

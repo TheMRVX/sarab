@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { SpoofConfig, SystemStatus, LiveLocation, SatelliteInfo } from '../types';
 
 export function getSessionToken(): string {

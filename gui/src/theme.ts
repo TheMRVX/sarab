@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT OR Apache-2.0
 import { createTheme } from '@mui/material/styles';
 
 export const darkTheme = createTheme({
