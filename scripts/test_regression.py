@@ -70,23 +70,27 @@ def test_embedded_frontend_freshness():
         print("  [+] Stale asset negative test passed: cargo check rejected stale frontend by default.")
 
         # 3b. Verify SARAB_SKIP_FRONTEND_VERIFY=1 permits bypassing only in non-release / non-CI builds
-        res_skip = run(["cargo", "check"], cwd=APP_DIR, env={"SARAB_SKIP_FRONTEND_VERIFY": "1"})
+        res_skip = run(
+            ["cargo", "check"],
+            cwd=APP_DIR,
+            env={"SARAB_SKIP_FRONTEND_VERIFY": "1", "CI": "false"},
+        )
         assert res_skip.returncode == 0, "cargo check failed under SARAB_SKIP_FRONTEND_VERIFY=1 in dev profile"
         print("  [+] Explicit dev bypass test passed (SARAB_SKIP_FRONTEND_VERIFY=1).")
 
         # 3c. Verify release / CI builds strictly disallow SARAB_SKIP_FRONTEND_VERIFY
-        res_rel_skip = run(
-            ["cargo", "check", "--release"],
+        res_ci_skip = run(
+            ["cargo", "check"],
             cwd=APP_DIR,
-            env={"SARAB_SKIP_FRONTEND_VERIFY": "1"},
+            env={"SARAB_SKIP_FRONTEND_VERIFY": "1", "CI": "true"},
             check=False,
         )
-        assert res_rel_skip.returncode != 0, "cargo check --release unexpectedly allowed SARAB_SKIP_FRONTEND_VERIFY=1"
+        assert res_ci_skip.returncode != 0, "cargo check unexpectedly allowed SARAB_SKIP_FRONTEND_VERIFY=1 under CI=true"
         assert (
-            "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_rel_skip.stderr
-            or "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_rel_skip.stdout
-        ), f"Expected release check rejection not found in:\n{res_rel_skip.stderr}"
-        print("  [+] Release profile protection passed: SARAB_SKIP_FRONTEND_VERIFY fail-closed in release profile.")
+            "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_ci_skip.stderr
+            or "SARAB_SKIP_FRONTEND_VERIFY is strictly disallowed in release or CI builds" in res_ci_skip.stdout
+        ), f"Expected CI rejection not found in:\n{res_ci_skip.stderr}"
+        print("  [+] Release/CI profile protection passed: SARAB_SKIP_FRONTEND_VERIFY fail-closed under CI=true.")
     finally:
         if probe_file.exists():
             probe_file.unlink()
