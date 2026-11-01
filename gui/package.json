@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build && node scripts/fingerprint.mjs",
+    "test": "node --test scripts/test_client.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
