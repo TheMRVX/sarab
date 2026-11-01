@@ -72,7 +72,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Rust third-party notices generation failed" }
           Pop-Location
           Push-Location gui
-          npx --yes license-checker@25.0.1 --production --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0' --json > ..\frontend-license-report.json
+          npx --yes license-checker@25.0.1 --production --excludePrivatePackages --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0' --json > ..\frontend-license-report.json
           if ($LASTEXITCODE -ne 0) { throw "Frontend license scan failed" }
           Pop-Location
           python scripts/generate_third_party_notices.py --rust rust-license-report.md --frontend-json frontend-license-report.json --output THIRD-PARTY-NOTICES.md

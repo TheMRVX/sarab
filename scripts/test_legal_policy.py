@@ -49,6 +49,7 @@ assert "SEARCH_INTERVAL_MS" in view
 assert "nominatim.openstreetmap.org/search" not in view
 for workflow in ("legal-audit.yml", "release.yml"):
     content = (repo / ".github/workflows" / workflow).read_text()
+    assert "--excludePrivatePackages" in content, f"Missing private-project exclusion: {workflow}"
     assert "--onlyAllow" in content, f"Missing frontend license enforcement: {workflow}"
 assert "git diff --exit-code -- THIRD-PARTY-NOTICES.md" in release
 assert not re.search(r"attributionControl\s*:\s*false", view)
