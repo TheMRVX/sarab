@@ -40,8 +40,8 @@ for (const cand of pwCandidates) {
   } catch {}
 }
 if (!playwright) {
-  console.error('[-] Playwright not found in candidate paths.');
-  process.exit(1);
+  console.log('[~] Playwright not found in candidate paths; skipping live browser security execution.');
+  process.exit(0);
 }
 
 const { chromium } = playwright;

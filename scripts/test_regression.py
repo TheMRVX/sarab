@@ -410,7 +410,10 @@ def test_browser_security():
     browser_test_script = SCRIPTS_DIR / "test_browser_security.mjs"
     res = run(["node", str(browser_test_script)], cwd=REPO_ROOT)
     assert res.returncode == 0, f"Browser security tests failed:\n{res.stdout}\n{res.stderr}"
-    print("  [+] Real browser security verified (exact-origin, CSRF mitigation, history scrubbing, security headers).")
+    if "[~] Playwright not found" in res.stdout:
+        print("  [~] Playwright not installed in environment; live browser execution skipped in CI.")
+    else:
+        print("  [+] Real browser security verified (exact-origin, CSRF mitigation, history scrubbing, security headers).")
 
 
 def main():
