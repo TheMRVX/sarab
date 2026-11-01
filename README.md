@@ -7,6 +7,7 @@
 A test-focused location provider that supplies configurable coordinates to the Windows Location platform through a user-mode virtual GNSS driver. A Rust CLI and locally served React dashboard manage location fixes, diagnostics, and route simulations.
 
 [![CI](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml/badge.svg)](https://github.com/TheMRVX/sarab/actions/workflows/ci.yml)
+[![CodeFactor](https://www.codefactor.io/repository/github/themrvx/sarab/badge)](https://www.codefactor.io/repository/github/themrvx/sarab)
 [![Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE-APACHE)
 [![MIT](https://img.shields.io/badge/license-MIT-yellow.svg)](LICENSE-MIT)
 ![Windows 10/11 x64](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-0078D4?logo=windows&logoColor=white)
