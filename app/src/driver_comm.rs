@@ -6,7 +6,31 @@ use anyhow::Result;
 pub const DRIVER_REG_PATH: &str = "System\\CurrentControlSet\\Services\\SarabGnss\\Parameters";
 
 #[cfg(windows)]
+pub fn is_driver_mocked() -> bool {
+    let check = |var: &str| {
+        if let Ok(val) = std::env::var(var) {
+            let v = val.trim();
+            v == "1" || v.eq_ignore_ascii_case("true") || v.eq_ignore_ascii_case("yes")
+        } else {
+            false
+        }
+    };
+    check("SARAB_NO_DRIVER") || check("SARAB_MOCK_DRIVER")
+}
+
+#[allow(dead_code)]
+#[cfg(not(windows))]
+pub fn is_driver_mocked() -> bool {
+    true
+}
+
+#[cfg(windows)]
 pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
+    if is_driver_mocked() {
+        crate::config::save_local_config(config)?;
+        return Ok(());
+    }
+
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
@@ -81,6 +105,13 @@ pub fn set_driver_parameters(config: &SpoofConfig) -> Result<()> {
 
 #[cfg(windows)]
 pub fn set_driver_enabled(enabled: bool) -> Result<()> {
+    if is_driver_mocked() {
+        let mut cfg = crate::config::load_local_config();
+        cfg.enabled = enabled;
+        crate::config::save_local_config(&cfg)?;
+        return Ok(());
+    }
+
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegOpenKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE, REG_DWORD,
@@ -117,6 +148,10 @@ pub fn set_driver_enabled(enabled: bool) -> Result<()> {
 
 #[cfg(windows)]
 pub fn get_driver_parameters() -> Result<SpoofConfig> {
+    if is_driver_mocked() {
+        return Ok(crate::config::load_local_config());
+    }
+
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegCloseKey, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE,
@@ -239,6 +274,15 @@ pub fn set_kinematics_parameters(
     heading: f64,
     speed_mps: f64,
 ) -> Result<()> {
+    if is_driver_mocked() {
+        let mut cfg = crate::config::load_local_config();
+        cfg.lat = lat;
+        cfg.lon = lon;
+        cfg.alt = alt;
+        crate::config::save_local_config(&cfg)?;
+        return Ok(());
+    }
+
     use windows::core::HSTRING;
     use windows::Win32::System::Registry::{
         RegCloseKey, RegCreateKeyExW, RegSetValueExW, HKEY, HKEY_LOCAL_MACHINE, KEY_SET_VALUE,
@@ -308,4 +352,35 @@ pub fn set_kinematics_parameters(
     config.alt = alt;
     crate::config::save_local_config(&config)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_driver_mocked_strict_values() {
+        #[cfg(windows)]
+        {
+            std::env::set_var("SARAB_NO_DRIVER", "0");
+            assert!(!is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "false");
+            assert!(!is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "random_string");
+            assert!(!is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "1");
+            assert!(is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "true");
+            assert!(is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "TRUE");
+            assert!(is_driver_mocked());
+            std::env::set_var("SARAB_NO_DRIVER", "yes");
+            assert!(is_driver_mocked());
+            std::env::remove_var("SARAB_NO_DRIVER");
+        }
+        #[cfg(not(windows))]
+        {
+            assert!(is_driver_mocked());
+        }
+    }
 }

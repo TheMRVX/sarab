@@ -75,6 +75,12 @@ pub fn validate_drift(radius: f64) -> Result<()> {
 }
 
 pub fn get_sarab_dir() -> PathBuf {
+    if let Ok(custom) = std::env::var("SARAB_DATA_DIR") {
+        let trimmed = custom.trim();
+        if !trimmed.is_empty() {
+            return PathBuf::from(trimmed);
+        }
+    }
     #[cfg(windows)]
     {
         if let Ok(program_data) = std::env::var("ProgramData") {
@@ -341,6 +347,17 @@ mod tests {
         assert!(validate_drift(50.0).is_ok());
         assert!(validate_drift(-0.1).is_err());
         assert!(validate_drift(50.1).is_err());
+    }
+
+    #[test]
+    fn test_sarab_data_dir_override() {
+        let test_dir = std::env::temp_dir().join("sarab_isolated_test_dir_12345");
+        std::env::set_var("SARAB_DATA_DIR", &test_dir);
+        assert_eq!(get_sarab_dir(), test_dir);
+        assert_eq!(get_config_path(), test_dir.join("config.toml"));
+        assert_eq!(get_session_token_path(), test_dir.join(".session_token"));
+        assert_eq!(get_active_port_path(), test_dir.join(".port"));
+        std::env::remove_var("SARAB_DATA_DIR");
     }
 
     #[test]

@@ -385,10 +385,10 @@ fn get_current_telemetry(
 
 pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     let addr = format!("{}:{}", host, port);
-    let local_url = format!("http://localhost:{}", port);
     let server = match Server::http(&addr) {
         Ok(s) => s,
         Err(e) => {
+            let local_url = format!("http://localhost:{}", port);
             if std::net::TcpStream::connect(&addr).is_ok() {
                 println!("\n========================================================");
                 println!("  Sarab Virtual GNSS Service is already active on {}", addr);
@@ -409,6 +409,13 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         }
     };
 
+    let actual_port = server
+        .server_addr()
+        .to_ip()
+        .map(|addr| addr.port())
+        .unwrap_or(port);
+    let local_url = format!("http://localhost:{}", actual_port);
+
     let session_token = match generate_session_token() {
         Ok(t) => t,
         Err(e) => {
@@ -421,14 +428,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     if let Err(e) = crate::config::save_session_token(&session_token) {
         eprintln!("[!] Warning: Could not save session token: {}", e);
     }
-    if let Err(e) = crate::config::save_active_port(port) {
+    if let Err(e) = crate::config::save_active_port(actual_port) {
         eprintln!("[!] Warning: Could not save active port: {}", e);
     }
 
     println!("\n========================================================");
     println!("  Sarab Virtual GNSS Web Control Dashboard");
     println!("  URL: {}", local_url);
-    println!("  Listening on: http://{}", addr);
+    println!("  Listening on: http://{}:{}", host, actual_port);
     println!(
         "  Session Token saved to: {:?}",
         crate::config::get_session_token_path()
@@ -453,7 +460,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Enforce strict Host header validation to prevent DNS Rebinding attacks
         let host_header = get_header_value(&request, "Host");
         let is_host_valid = match host_header.as_deref() {
-            Some(h) => is_allowed_host(h, port),
+            Some(h) => is_allowed_host(h, actual_port),
             None => false,
         };
 
@@ -476,7 +483,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
         // Origin validation: block cross-origin requests from foreign ports or arbitrary websites
         if let Some(ref origin) = get_header_value(&request, "Origin") {
-            if !is_allowed_origin(origin, port) {
+            if !is_allowed_origin(origin, actual_port) {
                 let mut forbidden_resp =
                     Response::from_string(error_json("Forbidden: Invalid Origin"))
                         .with_status_code(StatusCode(403))
@@ -511,8 +518,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         }
 
         let origin_header_val = get_header_value(&request, "Origin")
-            .filter(|o| is_allowed_origin(o, port))
-            .unwrap_or_else(|| format!("http://localhost:{}", port));
+            .filter(|o| is_allowed_origin(o, actual_port))
+            .unwrap_or_else(|| format!("http://localhost:{}", actual_port));
 
         let cors_header = Header::from_bytes(
             &b"Access-Control-Allow-Origin"[..],
@@ -527,7 +534,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Handle CORS preflight
         if request.method() == &Method::Options {
             if let Some(ref origin) = get_header_value(&request, "Origin") {
-                if !is_allowed_origin(origin, port) {
+                if !is_allowed_origin(origin, actual_port) {
                     let mut forbidden_resp =
                         Response::from_string(error_json("Forbidden: Invalid Origin"))
                             .with_status_code(StatusCode(403));
@@ -1512,6 +1519,14 @@ mod tests {
             !html_str.contains("sarab-token"),
             "Embedded index.html must not contain static or hardcoded sarab-token"
         );
+    }
+
+    #[test]
+    fn test_ephemeral_port_binding() {
+        let server = Server::http("127.0.0.1:0").expect("Ephemeral port 0 bind must succeed");
+        let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(0);
+        assert_ne!(port, 0, "Bound port must be non-zero");
+        assert!(port > 1024, "Ephemeral port must be in unprivileged range");
     }
 
     #[test]

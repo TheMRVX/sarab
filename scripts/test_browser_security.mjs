@@ -16,6 +16,8 @@
 import http from 'node:http';
 import cp from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import assert from 'node:assert/strict';
@@ -27,15 +29,17 @@ const APP_DIR = path.join(REPO_ROOT, 'app');
 
 // Resolve Playwright
 const require = createRequire(import.meta.url);
+const guiRequire = createRequire(path.join(REPO_ROOT, 'gui', 'package.json'));
 let playwright;
 const pwCandidates = [
-  'playwright',
-  '/usr/lib/node_modules/@playwright/mcp/node_modules/playwright',
-  '/usr/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright',
+  () => guiRequire('playwright'),
+  () => require('playwright'),
+  () => require('/usr/lib/node_modules/@playwright/mcp/node_modules/playwright'),
+  () => require('/usr/lib/node_modules/@executeautomation/playwright-mcp-server/node_modules/playwright'),
 ];
 for (const cand of pwCandidates) {
   try {
-    playwright = require(cand);
+    playwright = cand();
     break;
   } catch {}
 }
@@ -46,7 +50,6 @@ if (!playwright) {
 
 const { chromium } = playwright;
 
-const SARAB_PORT = 18092;
 const ATTACKER_PORT = 18098;
 
 function sleep(ms) {
@@ -61,35 +64,73 @@ async function runBrowserSecuritySuite() {
   const binName = isWindows ? 'sarab.exe' : 'sarab';
   const binPath = path.join(APP_DIR, 'target', 'debug', binName);
 
-  // 2. Start Sarab Server
-  console.log(`[*] Spawning Sarab GUI server on port ${SARAB_PORT}...`);
-  const sarabProc = cp.spawn(binPath, ['gui', '--port', String(SARAB_PORT)], {
+  // 2. Setup isolated temporary data directory
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'sarab-pw-test-'));
+  const testEnv = {
+    ...process.env,
+    SARAB_DATA_DIR: tempDir,
+    SARAB_NO_DRIVER: '1',
+  };
+
+  // 3. Start Sarab Server with dynamic port 0 in isolated environment
+  console.log(`[*] Spawning isolated Sarab GUI server (ephemeral port 0)...`);
+  const sarabProc = cp.spawn(binPath, ['gui', '--port', '0'], {
     cwd: APP_DIR,
+    env: testEnv,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 
-  let serverStarted = false;
-  sarabProc.stdout.on('data', (d) => {
-    if (d.toString().includes('Listening on:')) serverStarted = true;
-  });
+  // Track process for emergency cleanup
+  const cleanup = () => {
+    try {
+      if (sarabProc && !sarabProc.killed) {
+        sarabProc.kill('SIGKILL');
+      }
+    } catch {}
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    } catch {}
+  };
+  process.on('SIGINT', () => { cleanup(); process.exit(130); });
+  process.on('SIGTERM', () => { cleanup(); process.exit(143); });
 
-  // Wait for Sarab server readiness
-  for (let i = 0; i < 40; i++) {
-    if (serverStarted) break;
-    await sleep(100);
-  }
+  let sarabPort = 0;
+  let validToken = '';
+  let attackerServer = null;
+  let browser = null;
 
-  // Retrieve valid session token via CLI
-  const tokenProc = cp.spawnSync(binPath, ['token', '--raw'], {
-    cwd: APP_DIR,
-    encoding: 'utf-8',
-  });
-  const validToken = tokenProc.stdout.trim();
-  assert.equal(validToken.length, 32, `Expected 32-char token, got: ${validToken}`);
-  console.log(`  [+] Retrieved valid session token from CLI: ${validToken.slice(0, 8)}...`);
+  try {
+    // Wait for .port and .session_token to appear in isolated test data dir
+    const portFile = path.join(tempDir, '.port');
+    const tokenFile = path.join(tempDir, '.session_token');
+
+    for (let i = 0; i < 50; i++) {
+      if (sarabProc.exitCode !== null) {
+        throw new Error(`Sarab server exited prematurely with code ${sarabProc.exitCode}`);
+      }
+      if (fs.existsSync(portFile) && fs.existsSync(tokenFile)) {
+        try {
+          const p = parseInt(fs.readFileSync(portFile, 'utf-8').trim(), 10);
+          const t = fs.readFileSync(tokenFile, 'utf-8').trim();
+          if (p > 0 && t.length === 32) {
+            sarabPort = p;
+            validToken = t;
+            break;
+          }
+        } catch {}
+      }
+      await sleep(100);
+    }
+
+    assert.ok(sarabPort > 0, 'Failed to acquire dynamic ephemeral port');
+    assert.equal(validToken.length, 32, `Expected 32-char token, got: ${validToken}`);
+    console.log(`  [+] Bound to ephemeral port: ${sarabPort}`);
+    console.log(`  [+] Retrieved session token from isolated test store: ${validToken.slice(0, 8)}...`);
 
   // 3. Start Attacker HTTP Server on foreign port
-  const attackerServer = http.createServer((req, res) => {
+  attackerServer = http.createServer((req, res) => {
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
@@ -105,7 +146,7 @@ async function runBrowserSecuritySuite() {
     // Attack 1: Attempt cross-origin read of Sarab config
     window.runReadAttack = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:${SARAB_PORT}/api/config', {
+        const res = await fetch('http://127.0.0.1:${sarabPort}/api/config', {
           credentials: 'include',
         });
         window.attackResults.readStatus = res.status;
@@ -120,7 +161,7 @@ async function runBrowserSecuritySuite() {
     // Attack 2: Attempt CSRF mutation without X-Sarab-Token (relying on ambient cookie)
     window.runMutationAttack = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:${SARAB_PORT}/api/config', {
+        const res = await fetch('http://127.0.0.1:${sarabPort}/api/config', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -139,7 +180,7 @@ async function runBrowserSecuritySuite() {
     // Attack 3: Attempt custom header preflight attack
     window.runCustomHeaderAttack = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:${SARAB_PORT}/api/config', {
+        const res = await fetch('http://127.0.0.1:${sarabPort}/api/config', {
           method: 'POST',
           credentials: 'include',
           headers: {
@@ -162,21 +203,20 @@ async function runBrowserSecuritySuite() {
   console.log(`  [+] Attacker server listening on http://127.0.0.1:${ATTACKER_PORT}`);
 
   // 4. Launch real Google Chrome
-  const browser = await chromium.launch({
+  browser = await chromium.launch({
     executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome',
     headless: true,
     args: ['--no-sandbox', '--disable-gpu'],
   });
 
-  try {
-    const context = await browser.newContext();
-    const dashboardPage = await context.newPage();
+  const context = await browser.newContext();
+  const dashboardPage = await context.newPage();
 
     // =========================================================================
     // Test 1: Trusted Dashboard Launch & Token Sanitization
     // =========================================================================
     console.log('[*] Test 1: Launching Dashboard with initial token in query params...');
-    await dashboardPage.goto(`http://127.0.0.1:${SARAB_PORT}/?token=${validToken}`, {
+    await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/?token=${validToken}`, {
       waitUntil: 'domcontentloaded',
     });
 
@@ -187,7 +227,7 @@ async function runBrowserSecuritySuite() {
     console.log(`  [+] Dashboard current URL: ${currentUrl}`);
     assert.equal(
       currentUrl,
-      `http://127.0.0.1:${SARAB_PORT}/`,
+      `http://127.0.0.1:${sarabPort}/`,
       `Expected token to be scrubbed from URL address bar, got: ${currentUrl}`
     );
 
@@ -205,7 +245,7 @@ async function runBrowserSecuritySuite() {
     assert.equal(storedToken, null, 'No token should be stored in sessionStorage');
 
     // Verify cookies in browser context
-    const cookies = await context.cookies(`http://127.0.0.1:${SARAB_PORT}`);
+    const cookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
     const sessionCookie = cookies.find((c) => c.name === 'sarab_session');
     assert.ok(sessionCookie, 'sarab_session cookie must be set in browser context');
     assert.equal(sessionCookie.value, validToken, 'sarab_session cookie value must match token');
@@ -293,7 +333,7 @@ async function runBrowserSecuritySuite() {
     // Test 3: Security Headers Verification
     // =========================================================================
     console.log('[*] Test 3: Verifying Security Headers in browser response...');
-    const resp = await dashboardPage.goto(`http://127.0.0.1:${SARAB_PORT}/`);
+    const resp = await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
     const headers = resp.headers();
     assert.equal(headers['x-frame-options'], 'DENY');
     assert.equal(headers['x-content-type-options'], 'nosniff');
@@ -303,9 +343,22 @@ async function runBrowserSecuritySuite() {
 
     console.log('=== All Browser Security Regression Invariants Passed (3/3) ===');
   } finally {
-    await browser.close();
-    attackerServer.close();
-    sarabProc.kill();
+    if (browser) {
+      try { await browser.close(); } catch {}
+    }
+    if (attackerServer) {
+      try { attackerServer.close(); } catch {}
+    }
+    if (sarabProc && !sarabProc.killed) {
+      try { sarabProc.kill("SIGTERM"); } catch {}
+      await sleep(150);
+      try { sarabProc.kill("SIGKILL"); } catch {}
+    }
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    } catch {}
   }
 }
 
