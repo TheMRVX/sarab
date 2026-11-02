@@ -89,68 +89,8 @@ if ! command -v gh >/dev/null 2>&1; then
     exit 1
 fi
 
-CHECKS_JSON="$(gh api "repos/:owner/:repo/commits/$LOCAL_SHA/check-runs" 2>/dev/null || true)"
-if [ -z "$CHECKS_JSON" ]; then
-    echo "[-] Error: Failed to fetch check runs from GitHub API for commit $LOCAL_SHA."
-    exit 1
-fi
-
-CHECK_SUMMARY="$(echo "$CHECKS_JSON" | python3 -c '
-import sys, json
-try:
-    data = json.load(sys.stdin)
-except Exception as e:
-    print(f"ERROR:Invalid JSON: {e}")
-    sys.exit(1)
-
-total = data.get("total_count", len(data.get("check_runs", [])))
-runs = data.get("check_runs", [])
-incomplete = [r for r in runs if r.get("status") != "completed"]
-failed = [r for r in runs if r.get("conclusion") not in ("success", "skipped")]
-success = [r for r in runs if r.get("conclusion") == "success"]
-
-print(f"TOTAL={total}")
-print(f"INCOMPLETE={len(incomplete)}")
-print(f"FAILED={len(failed)}")
-print(f"SUCCESS={len(success)}")
-for r in runs:
-    n = r.get("name", "")
-    s = r.get("status", "")
-    c = r.get("conclusion", "")
-    print(f"CHECK:{n}:{s}:{c}")
-' 2>&1)"
-
-TOTAL_CHECKS="$(echo "$CHECK_SUMMARY" | grep -E '^TOTAL=' | cut -d'=' -f2 || echo 0)"
-INCOMPLETE_COUNT="$(echo "$CHECK_SUMMARY" | grep -E '^INCOMPLETE=' | cut -d'=' -f2 || echo 0)"
-FAILED_COUNT="$(echo "$CHECK_SUMMARY" | grep -E '^FAILED=' | cut -d'=' -f2 || echo 0)"
-SUCCESS_COUNT="$(echo "$CHECK_SUMMARY" | grep -E '^SUCCESS=' | cut -d'=' -f2 || echo 0)"
-
-if [ "$TOTAL_CHECKS" -eq 0 ]; then
-    echo "[-] Error: No GitHub check runs found for commit $LOCAL_SHA."
-    echo "    A release cannot be tagged without passing CI checks."
-    exit 1
-fi
-
-if [ "$INCOMPLETE_COUNT" -gt 0 ]; then
-    echo "[-] Error: $INCOMPLETE_COUNT check run(s) are still in progress for commit $LOCAL_SHA:"
-    echo "$CHECK_SUMMARY" | grep -E '^CHECK:' | grep -v ':completed:' | while IFS=':' read -r _ name status conclusion; do
-        echo "  - $name ($status)"
-    done
-    exit 1
-fi
-
-if [ "$FAILED_COUNT" -gt 0 ]; then
-    echo "[-] Error: $FAILED_COUNT check run(s) did not succeed for commit $LOCAL_SHA:"
-    echo "$CHECK_SUMMARY" | grep -E '^CHECK:' | grep -v ':success' | grep -v ':skipped' | while IFS=':' read -r _ name status conclusion; do
-        echo "  - $name ($conclusion)"
-    done
-    exit 1
-fi
-
-echo "[+] All $TOTAL_CHECKS CI check run(s) completed successfully ($SUCCESS_COUNT passed, remainder skipped)."
-echo "$CHECK_SUMMARY" | grep -E '^CHECK:' | while IFS=':' read -r _ name status conclusion; do
-    echo "    [✓] $name: $conclusion"
-done
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+python3 "$SCRIPT_DIR/check_release_checks.py" --sha "$LOCAL_SHA"
 
 # 9. Confirmation
 echo ""
@@ -159,7 +99,7 @@ echo "  Target Tag:    $TAG"
 echo "  Commit SHA:    $LOCAL_SHA"
 echo "  Branch:        main (synced with origin/main)"
 echo "  Cargo Version: $CARGO_VER"
-echo "  CI Checks:     $TOTAL_CHECKS checks verified (100% success)"
+echo "  CI Checks:     All required GitHub Actions checks passed"
 echo "========================================================"
 echo ""
 
@@ -173,7 +113,13 @@ fi
 
 # 10. Create and push annotated tag
 echo "[*] Creating annotated tag $TAG on verified commit $LOCAL_SHA..."
-git tag -a "$TAG" -m "Release $TAG"
+if [ "$(git rev-parse HEAD)" != "$LOCAL_SHA" ] ||
+   [ "$(git rev-parse --abbrev-ref HEAD)" != "main" ] ||
+   [ -n "$(git status --porcelain)" ]; then
+    echo "[-] Error: Working tree or HEAD changed after verification. Start again."
+    exit 1
+fi
+git tag -a "$TAG" "$LOCAL_SHA" -m "Release $TAG"
 
 echo "[*] Pushing tag $TAG to origin..."
 git push origin "$TAG"
