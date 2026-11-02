@@ -5,6 +5,10 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // Permanently dirty virtual trigger: guarantees build.rs runs its fast (~3ms) SHA-256
+    // fingerprint validation on every single cargo check/build, preventing mtime bypasses.
+    println!("cargo:rerun-if-changed=ALWAYS_RECHECK_FRONTEND_FINGERPRINT");
+
     validate_embedded_frontend();
 
     #[cfg(windows)]
@@ -48,9 +52,19 @@ fn collect_files_recursive(dir: &Path, base_dir: &Path, files: &mut BTreeSet<Str
     }
 }
 
+fn is_text_file(path: &str) -> bool {
+    let lower = path.to_lowercase();
+    let text_exts = [
+        ".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".html", ".css", ".scss", ".svg",
+        ".md", ".txt", ".toml", ".yaml", ".yml", ".env",
+    ];
+    text_exts.iter().any(|ext| lower.ends_with(ext)) || lower.contains(".env")
+}
+
 fn compute_source_fingerprint(
     gui_dir: &Path,
     files: &BTreeSet<String>,
+    mode: &str,
     vite_env: &BTreeMap<String, String>,
 ) -> String {
     let mut hasher = Sha256::new();
@@ -58,23 +72,31 @@ fn compute_source_fingerprint(
         let full_path = gui_dir.join(rel_path);
         println!("cargo:rerun-if-changed={}", full_path.display());
         let content = fs::read(&full_path).unwrap_or_default();
-        // Normalize CRLF to LF
-        let mut normalized = Vec::with_capacity(content.len());
-        let mut i = 0;
-        while i < content.len() {
-            if content[i] == b'\r' && i + 1 < content.len() && content[i + 1] == b'\n' {
-                normalized.push(b'\n');
-                i += 2;
-            } else {
-                normalized.push(content[i]);
-                i += 1;
+        let normalized = if is_text_file(rel_path) {
+            let mut buf = Vec::with_capacity(content.len());
+            let mut i = 0;
+            while i < content.len() {
+                if content[i] == b'\r' && i + 1 < content.len() && content[i + 1] == b'\n' {
+                    buf.push(b'\n');
+                    i += 2;
+                } else {
+                    buf.push(content[i]);
+                    i += 1;
+                }
             }
-        }
+            buf
+        } else {
+            content
+        };
+
         hasher.update(rel_path.as_bytes());
         hasher.update(b"\n");
         hasher.update(&normalized);
         hasher.update(b"\n");
     }
+
+    let mode_line = format!("mode:{}\n", mode);
+    hasher.update(mode_line.as_bytes());
 
     for (k, v) in vite_env {
         let line = format!("env:{}={}\n", k, v);
@@ -234,6 +256,31 @@ fn validate_embedded_frontend() {
         }
     }
 
+    let recorded_mode = if fingerprint_file.exists() {
+        let recorded_content = fs::read_to_string(&fingerprint_file).unwrap_or_default();
+        serde_json::from_str::<serde_json::Value>(&recorded_content)
+            .ok()
+            .and_then(|v| {
+                v.get("mode")
+                    .or_else(|| v.get("build_env").and_then(|b| b.get("mode")))
+                    .and_then(|m| m.as_str())
+                    .map(|s| s.to_string())
+            })
+            .unwrap_or_else(|| "production".to_string())
+    } else {
+        "production".to_string()
+    };
+
+    let mode_env_file = format!(".env.{}", recorded_mode);
+    let mode_env_local = format!(".env.{}.local", recorded_mode);
+    for rel in [&mode_env_file, &mode_env_local] {
+        let full = gui_dir.join(rel);
+        if full.exists() {
+            println!("cargo:rerun-if-changed={}", full.display());
+            source_files.insert(rel.to_string());
+        }
+    }
+
     collect_files_recursive(&public_dir, &gui_dir, &mut source_files);
     collect_files_recursive(&src_dir, &gui_dir, &mut source_files);
 
@@ -246,7 +293,7 @@ fn validate_embedded_frontend() {
         }
     }
 
-    let expected_source_hash = compute_source_fingerprint(&gui_dir, &source_files, &vite_env);
+    let expected_source_hash = compute_source_fingerprint(&gui_dir, &source_files, &recorded_mode, &vite_env);
     let (expected_dist_hash, actual_dist_assets) = compute_dist_fingerprint(&dist_dir);
 
     if !fingerprint_file.exists() {
