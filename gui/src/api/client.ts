@@ -28,24 +28,39 @@ export function setDemoMode(enabled: boolean): void {
 
 /**
  * Extracts session token from URL query parameters (e.g. initial CLI launch ?token=...)
- * and immediately scrubs it from the browser address bar and history via replaceState.
+ * or restores it from origin-isolated sessionStorage.
+ * Immediately scrubs query token from the browser address bar and history via replaceState.
  */
 export function initAuthFromLocation(): string {
-  if (typeof window !== 'undefined' && window.location) {
-    try {
-      const url = new URL(window.location.href);
-      const queryToken = url.searchParams.get('token');
-      if (queryToken && queryToken.trim().length > 0) {
-        const token = queryToken.trim();
-        inMemoryToken = token;
-        url.searchParams.delete('token');
-        const cleanUrl = url.pathname + (url.search ? url.search : '') + url.hash;
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState(null, '', cleanUrl);
+  if (typeof window !== 'undefined') {
+    // 1. Check URL query params (?token=...)
+    if (window.location) {
+      try {
+        const url = new URL(window.location.href);
+        const queryToken = url.searchParams.get('token');
+        if (queryToken && queryToken.trim().length > 0) {
+          const token = queryToken.trim();
+          setSessionToken(token);
+          url.searchParams.delete('token');
+          const cleanUrl = url.pathname + (url.search ? url.search : '') + url.hash;
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', cleanUrl);
+          }
+          return token;
         }
-        return token;
-      }
-    } catch {}
+      } catch {}
+    }
+
+    // 2. Restore from origin-isolated sessionStorage
+    if (window.sessionStorage) {
+      try {
+        const stored = window.sessionStorage.getItem('sarab_token');
+        if (stored && stored.trim().length > 0) {
+          inMemoryToken = stored.trim();
+          return inMemoryToken;
+        }
+      } catch {}
+    }
   }
   return inMemoryToken || '';
 }
@@ -56,42 +71,48 @@ export function getSessionToken(): string {
 }
 
 export function setSessionToken(token: string): void {
-  inMemoryToken = token.trim();
+  const trimmed = token.trim();
+  inMemoryToken = trimmed;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      if (trimmed) {
+        window.sessionStorage.setItem('sarab_token', trimmed);
+      } else {
+        window.sessionStorage.removeItem('sarab_token');
+      }
+    } catch {}
+  }
+}
+
+export function clearAuth(): void {
+  inMemoryToken = null;
+  if (typeof window !== 'undefined' && window.sessionStorage) {
+    try {
+      window.sessionStorage.removeItem('sarab_token');
+    } catch {}
+  }
 }
 
 export async function checkAuthStatus(): Promise<boolean> {
   if (isDemoMode()) return true;
 
-  // 1. Check if token was passed in query parameter and sanitize URL immediately
-  const initialToken = initAuthFromLocation();
-  if (initialToken) {
-    const ok = await verifyToken(initialToken);
-    if (ok) return true;
+  const token = getSessionToken();
+  if (!token) {
+    return false;
   }
 
-  // 2. Query /api/auth/session with credentials (same-origin cookie)
-  if (!inMemoryToken) {
-    try {
-      const res = await apiFetch('/api/auth/session');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.authenticated && data.token) {
-          inMemoryToken = data.token;
-          return true;
-        }
-      }
-    } catch {}
-  }
-
-  // 3. Fallback check /api/auth/status
+  // Verify stored/in-memory token against /api/auth/status via X-Sarab-Token header
   try {
     const res = await apiFetch('/api/auth/status');
     if (res.ok) {
       const data = await res.json();
-      return !!data.authenticated;
+      if (data && data.authenticated) {
+        return true;
+      }
     }
   } catch {}
 
+  clearAuth();
   return false;
 }
 
@@ -116,11 +137,15 @@ export async function apiFetch(input: string, init?: RequestInit): Promise<Respo
   if (token && !headers.has('X-Sarab-Token')) {
     headers.set('X-Sarab-Token', token);
   }
-  return fetch(input, {
+  const res = await fetch(input, {
     credentials: 'same-origin',
     ...init,
     headers,
   });
+  if (res.status === 401 && !isDemoMode()) {
+    clearAuth();
+  }
+  return res;
 }
 
 // Default fallback config (Tehran Azadi Square)
