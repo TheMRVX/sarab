@@ -39,7 +39,7 @@ assert '"LICENSE-CHOICE.txt"' in release
 assert "Publish GitHub Release" in release
 assert "inputs.publish == true" in release
 assert "Upload release build artifacts" in release
-assert "branches: [legal/license-compliance-audit]" in release
+assert 'tags: [ "v*" ]' in release
 assert "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')" in release
 assert "contents: read" in release
 

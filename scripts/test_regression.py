@@ -55,6 +55,29 @@ def test_embedded_frontend_freshness():
     finally:
         os.utime(main_tsx, (orig_mtime, orig_mtime))
 
+    # 2b. Nanosecond timestamp preservation negative test:
+    # Modifying file content while preserving exact nanosecond mtime MUST be detected fail-closed
+    orig_main_content = main_tsx.read_text(encoding="utf-8")
+    orig_stat = main_tsx.stat()
+    orig_mtime_ns = orig_stat.st_mtime_ns
+    orig_atime_ns = orig_stat.st_atime_ns
+    try:
+        main_tsx.write_text(orig_main_content + "\n// probe with preserved timestamp\n", encoding="utf-8")
+        os.utime(main_tsx, ns=(orig_atime_ns, orig_mtime_ns))
+        assert main_tsx.stat().st_mtime_ns == orig_mtime_ns, "Filesystem failed to restore exact nanosecond mtime"
+
+        # cargo check runs with warm cache, zero file timestamp changes, without cargo clean
+        res_stealth = run(["cargo", "check"], cwd=APP_DIR, check=False)
+        assert res_stealth.returncode != 0, "cargo check unexpectedly skipped build.rs when file content changed with preserved mtime"
+        assert (
+            "Build integrity violation: embedded frontend assets" in res_stealth.stderr
+            or "Build integrity violation: embedded frontend assets" in res_stealth.stdout
+        ), f"Expected integrity violation panic not found in:\n{res_stealth.stderr}"
+        print("  [+] Nanosecond timestamp preservation negative test passed: cargo check detected stealth content edit with warm cache.")
+    finally:
+        main_tsx.write_text(orig_main_content, encoding="utf-8")
+        os.utime(main_tsx, ns=(orig_atime_ns, orig_mtime_ns))
+
     # 3. Non-destructive probe test: create a temporary untracked file in gui/src/
     probe_file = GUI_DIR / "src" / "_integrity_probe.tmp"
     try:
@@ -272,7 +295,8 @@ def test_local_web_authentication_boundary():
             html = resp.read().decode("utf-8")
             assert "sarab-token" not in html, "Unauthenticated GET / leaked sarab-token meta tag"
             cookie_hdr = resp.getheader("Set-Cookie")
-            assert cookie_hdr is None or "sarab_session" not in cookie_hdr, "Unauthenticated GET / leaked session cookie"
+            assert cookie_hdr is not None and "Max-Age=0" in cookie_hdr, "Unauthenticated GET / must emit legacy cookie eviction header"
+            assert valid_token not in cookie_hdr, "Unauthenticated GET / must never leak session token in cookie"
     
             # 6c. Unauthenticated GET /api/auth/status returns {"authenticated": false}
             conn.request("GET", "/api/auth/status")
@@ -293,33 +317,40 @@ def test_local_web_authentication_boundary():
             resp.read()
             assert resp.status == 401, f"Expected 401 for invalid verify, got {resp.status}"
     
-            # 6f. Valid token POST /api/auth/verify returns 200 with Set-Cookie
+            # 6f. Valid token POST /api/auth/verify returns 200 with eviction Set-Cookie
             valid_body = json.dumps({"token": valid_token}).encode("utf-8")
             conn.request("POST", "/api/auth/verify", body=valid_body, headers={"Content-Type": "application/json"})
             resp = conn.getresponse()
-            resp.read()
+            verify_data = json.loads(resp.read().decode("utf-8"))
             assert resp.status == 200
+            assert verify_data.get("success") is True
+            assert verify_data.get("token") == valid_token
             cookie = resp.getheader("Set-Cookie") or ""
-            assert "sarab_session=" in cookie
+            assert "Max-Age=0" in cookie, "Must actively evict legacy session cookie"
             assert "HttpOnly" in cookie
             assert "SameSite=Strict" in cookie
-    
-            # 6g. Authenticated GET /?token=<valid_token> returns 100% static HTML (no token meta tag) and Set-Cookie
+
+            # 6g. Authenticated GET /?token=<valid_token> returns 100% static HTML (no token meta tag) and eviction Set-Cookie
             conn.request("GET", f"/?token={valid_token}")
             resp = conn.getresponse()
             auth_html = resp.read().decode("utf-8")
             assert "sarab-token" not in auth_html, "Authenticated GET /?token leaked meta tag into HTML"
             auth_cookie = resp.getheader("Set-Cookie") or ""
-            assert f"sarab_session={valid_token}" in auth_cookie
-    
-            # 6h. Same-origin session rehydration via GET /api/auth/session with cookie returns token
-            conn.request("GET", "/api/auth/session", headers={"Cookie": f"sarab_session={valid_token}"})
+            assert "Max-Age=0" in auth_cookie, "Must evict legacy cookie on page request"
+
+            # 6h. Header-based status verification via GET /api/auth/status with X-Sarab-Token
+            conn.request("GET", "/api/auth/status", headers={"X-Sarab-Token": valid_token})
             resp = conn.getresponse()
             assert resp.status == 200
             sess_data = json.loads(resp.read().decode("utf-8"))
             assert sess_data.get("authenticated") is True
-            assert sess_data.get("token") == valid_token
-    
+
+            # 6h-bis. Obsolete /api/auth/session endpoint is eliminated (returns 404 or 401)
+            conn.request("GET", "/api/auth/session", headers={"X-Sarab-Token": valid_token})
+            resp_obsolete = conn.getresponse()
+            resp_obsolete.read()
+            assert resp_obsolete.status in (404, 401), f"Expected 404 for obsolete session endpoint, got: {resp_obsolete.status}"
+
             # 6i. Mutating POST /api/config with only ambient cookie (no X-Sarab-Token) must fail with 401
             cfg_payload = json.dumps({
                 "latitude": 35.6892,

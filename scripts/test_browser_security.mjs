@@ -44,6 +44,10 @@ for (const cand of pwCandidates) {
   } catch {}
 }
 if (!playwright) {
+  if (process.env.SARAB_REQUIRE_BROWSER_TEST === '1') {
+    console.error('[-] Fatal: Playwright is required in Real-Browser Security Suite but could not be loaded.');
+    process.exit(1);
+  }
   console.log('[~] Playwright not found in candidate paths; skipping live browser security execution.');
   process.exit(0);
 }
@@ -130,7 +134,11 @@ async function runBrowserSecuritySuite() {
     console.log(`  [+] Retrieved session token from isolated test store: ${validToken.slice(0, 8)}...`);
 
   // 3. Start Attacker HTTP Server on foreign port
+  const attackerReceivedCookies = [];
   attackerServer = http.createServer((req, res) => {
+    if (req.headers.cookie) {
+      attackerReceivedCookies.push(req.headers.cookie);
+    }
     res.writeHead(200, {
       'Content-Type': 'text/html; charset=utf-8',
       'Cache-Control': 'no-store',
@@ -203,11 +211,16 @@ async function runBrowserSecuritySuite() {
   console.log(`  [+] Attacker server listening on http://127.0.0.1:${ATTACKER_PORT}`);
 
   // 4. Launch real Google Chrome
-  browser = await chromium.launch({
-    executablePath: process.env.CHROME_BIN || '/usr/bin/google-chrome',
+  const launchOptions = {
     headless: true,
     args: ['--no-sandbox', '--disable-gpu'],
-  });
+  };
+  if (process.env.CHROME_BIN) {
+    launchOptions.executablePath = process.env.CHROME_BIN;
+  } else if (fs.existsSync('/usr/bin/google-chrome')) {
+    launchOptions.executablePath = '/usr/bin/google-chrome';
+  }
+  browser = await chromium.launch(launchOptions);
 
   const context = await browser.newContext();
   const dashboardPage = await context.newPage();
@@ -242,26 +255,24 @@ async function runBrowserSecuritySuite() {
     const storedToken = await dashboardPage.evaluate(() =>
       sessionStorage.getItem('sarab_token')
     );
-    assert.equal(storedToken, null, 'No token should be stored in sessionStorage');
+    assert.equal(storedToken, validToken, 'Token must be safely persisted in origin-isolated sessionStorage');
 
-    // Verify cookies in browser context
+    // Verify cookies in browser context: MUST NOT have any sarab_session cookie
     const cookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
     const sessionCookie = cookies.find((c) => c.name === 'sarab_session');
-    assert.ok(sessionCookie, 'sarab_session cookie must be set in browser context');
-    assert.equal(sessionCookie.value, validToken, 'sarab_session cookie value must match token');
-    assert.ok(sessionCookie.httpOnly, 'sarab_session cookie must be HttpOnly');
-    assert.equal(sessionCookie.sameSite, 'Strict', 'sarab_session cookie must be SameSite=Strict');
-    console.log('  [+] HttpOnly SameSite=Strict session cookie verified.');
+    assert.equal(sessionCookie, undefined, 'sarab_session cookie must NOT be set in browser context');
+    console.log('  [+] Zero ambient cookie retention & sessionStorage isolation verified.');
 
-    // Same-origin API call within dashboard page succeeds
-    const sessionRes = await dashboardPage.evaluate(async () => {
-      const r = await fetch('/api/auth/session');
+    // Same-origin API status call with X-Sarab-Token succeeds
+    const statusRes = await dashboardPage.evaluate(async (tok) => {
+      const r = await fetch('/api/auth/status', {
+        headers: { 'X-Sarab-Token': tok },
+      });
       return { status: r.status, data: await r.json() };
-    });
-    assert.equal(sessionRes.status, 200, 'Same-origin /api/auth/session should succeed');
-    assert.equal(sessionRes.data.authenticated, true);
-    assert.equal(sessionRes.data.token, validToken);
-    console.log('  [+] Same-origin session rehydration verified.');
+    }, validToken);
+    assert.equal(statusRes.status, 200, 'Same-origin /api/auth/status should succeed');
+    assert.equal(statusRes.data.authenticated, true);
+    console.log('  [+] Same-origin header auth verified.');
 
     // Same-origin mutating call with X-Sarab-Token succeeds
     const mutateRes = await dashboardPage.evaluate(async (tok) => {
@@ -287,9 +298,28 @@ async function runBrowserSecuritySuite() {
     console.log('  [+] Same-origin authorized mutation with X-Sarab-Token verified.');
 
     // =========================================================================
-    // Test 2: Cross-Origin Boundary & Anti-CSRF on Foreign Localhost Port
+    // Test 2: Legacy Cookie Active Eviction on Upgrade
     // =========================================================================
-    console.log('[*] Test 2: Testing cross-origin attack from foreign localhost port...');
+    console.log('[*] Test 2: Testing legacy cookie expulsion on upgrade...');
+    await context.addCookies([{
+      name: 'sarab_session',
+      value: 'stale_legacy_cookie_value_999',
+      domain: '127.0.0.1',
+      path: '/',
+      httpOnly: true,
+      sameSite: 'Strict',
+    }]);
+    await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
+    await sleep(150);
+    const postEvictCookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
+    const evictedCookie = postEvictCookies.find((c) => c.name === 'sarab_session');
+    assert.equal(evictedCookie, undefined, 'Legacy sarab_session cookie must be evicted by Set-Cookie Max-Age=0');
+    console.log('  [+] Legacy cookie active eviction verified.');
+
+    // =========================================================================
+    // Test 3: Cross-Origin Boundary & Anti-CSRF on Foreign Localhost Port
+    // =========================================================================
+    console.log('[*] Test 3: Testing cross-origin attack from foreign localhost port...');
     const attackerPage = await context.newPage();
     await attackerPage.goto(`http://127.0.0.1:${ATTACKER_PORT}/`, {
       waitUntil: 'domcontentloaded',
@@ -300,7 +330,6 @@ async function runBrowserSecuritySuite() {
       await window.runReadAttack();
     });
     const readResult = await attackerPage.evaluate(() => window.attackResults);
-    // Either browser CORS blocked it (readBlocked) or server responded 403 Forbidden
     assert.ok(
       readResult.readBlocked || readResult.readStatus === 403,
       `Expected cross-origin read to be blocked or return 403, got: ${JSON.stringify(readResult)}`
@@ -313,10 +342,10 @@ async function runBrowserSecuritySuite() {
     });
     const mutationResult = await attackerPage.evaluate(() => window.attackResults);
     assert.ok(
-      mutationResult.mutationBlocked || mutationResult.mutationStatus === 403,
-      `Expected cross-origin mutation without token to return 403 or be blocked, got: ${JSON.stringify(mutationResult)}`
+      mutationResult.mutationBlocked || mutationResult.mutationStatus === 403 || mutationResult.mutationStatus === 401,
+      `Expected cross-origin mutation without token to return 403/401 or be blocked, got: ${JSON.stringify(mutationResult)}`
     );
-    console.log('  [+] Cross-origin CSRF mutation attack without token rejected (403 Forbidden).');
+    console.log('  [+] Cross-origin CSRF mutation attack without token rejected.');
 
     // Run Attack 3: Custom Header Preflight Attack
     await attackerPage.evaluate(async () => {
@@ -329,10 +358,29 @@ async function runBrowserSecuritySuite() {
     );
     console.log('  [+] Cross-origin preflight with custom header rejected.');
 
+    // Verify that attacker server received ZERO cookies from the browser
+    assert.equal(
+      attackerReceivedCookies.some((c) => c.includes('sarab_session') || c.includes(validToken)),
+      false,
+      'Attacker server must NEVER receive sarab_session cookie or session token in request headers'
+    );
+    console.log('  [+] Attacker server confirmed: zero leaked tokens or cookies received.');
+
+    // Verify backend coordinates were NOT mutated by attacker
+    const verifyCfgRes = await dashboardPage.evaluate(async (tok) => {
+      const r = await fetch('/api/config', {
+        headers: { 'X-Sarab-Token': tok },
+      });
+      return await r.json();
+    }, validToken);
+    assert.notEqual(verifyCfgRes.latitude, 12.345, 'Backend state must NOT have been mutated by CSRF attempt');
+    assert.notEqual(verifyCfgRes.latitude, 99.9, 'Backend state must NOT have been mutated by preflight attempt');
+    console.log('  [+] Backend state immunity verified: coordinates remain uncorrupted.');
+
     // =========================================================================
-    // Test 3: Security Headers Verification
+    // Test 4: Security Headers Verification
     // =========================================================================
-    console.log('[*] Test 3: Verifying Security Headers in browser response...');
+    console.log('[*] Test 4: Verifying Security Headers in browser response...');
     const resp = await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
     const headers = resp.headers();
     assert.equal(headers['x-frame-options'], 'DENY');
@@ -341,7 +389,7 @@ async function runBrowserSecuritySuite() {
     assert.ok(headers['cache-control'].includes('no-store'));
     console.log('  [+] Security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cache-Control) verified.');
 
-    console.log('=== All Browser Security Regression Invariants Passed (3/3) ===');
+    console.log('=== All Browser Security Regression Invariants Passed (4/4) ===');
   } finally {
     if (browser) {
       try { await browser.close(); } catch {}
