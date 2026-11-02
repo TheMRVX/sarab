@@ -222,22 +222,33 @@ test('6. Authenticated browser initialization extracts token and scrubs URL via 
   );
 });
 
-test('7. Same-origin session rehydration restores token from /api/auth/session without sessionStorage', async () => {
-  client.setSessionToken('');
+test('7. Origin-isolated session restoration recovers token from sessionStorage', async () => {
+  client.clearAuth();
   assert.equal(client.getSessionToken(), '');
 
+  globalThis.sessionStorage.setItem('sarab_token', 'rehydrated_session_token_abc');
   serverStatusCode = 200;
   serverResponseBody = {
     authenticated: true,
-    token: 'rehydrated_session_token_abc',
   };
 
   const isAuthed = await client.checkAuthStatus();
-  assert.equal(isAuthed, true, 'checkAuthStatus must succeed via /api/auth/session');
+  assert.equal(isAuthed, true, 'checkAuthStatus must succeed via sessionStorage + /api/auth/status');
   assert.equal(
     client.getSessionToken(),
     'rehydrated_session_token_abc',
-    'Session token must be rehydrated into inMemoryToken'
+    'Session token must be restored from sessionStorage into inMemoryToken'
+  );
+  assert.equal(lastReceivedUrl, '/api/auth/status', 'Auth check must hit /api/auth/status');
+  assert.equal(
+    lastReceivedHeaders['x-sarab-token'],
+    'rehydrated_session_token_abc',
+    'Must attach X-Sarab-Token header during auth check'
+  );
+  assert.equal(
+    lastReceivedHeaders['cookie'],
+    undefined,
+    'Client must not transmit ambient cookies for authentication'
   );
 });
 
@@ -262,5 +273,36 @@ test('8. Mutating API calls attach X-Sarab-Token header', async () => {
     lastReceivedHeaders['x-sarab-token'],
     'mutation_test_token_999',
     'Mutating API call must attach X-Sarab-Token header'
+  );
+});
+
+test('9. Revoked or invalid session token (HTTP 401) purges in-memory and sessionStorage credentials', async () => {
+  client.setSessionToken('revoked_invalid_token_401');
+  assert.equal(client.getSessionToken(), 'revoked_invalid_token_401');
+  assert.equal(globalThis.sessionStorage.getItem('sarab_token'), 'revoked_invalid_token_401');
+
+  serverStatusCode = 401;
+  serverResponseBody = { error: 'Unauthorized: Missing or invalid session token' };
+
+  const isAuthed = await client.checkAuthStatus();
+  assert.equal(isAuthed, false, 'Invalid token must report unauthenticated');
+  assert.equal(client.getSessionToken(), '', 'In-memory token must be cleared on 401');
+  assert.equal(
+    globalThis.sessionStorage.getItem('sarab_token'),
+    null,
+    'sessionStorage must be purged on 401'
+  );
+});
+
+test('10. Client never requests obsolete /api/auth/session endpoint', async () => {
+  client.clearAuth();
+  serverStatusCode = 200;
+  serverResponseBody = { authenticated: false };
+
+  await client.checkAuthStatus();
+  assert.notEqual(
+    lastReceivedUrl,
+    '/api/auth/session',
+    'Client must not call eliminated /api/auth/session endpoint'
   );
 });

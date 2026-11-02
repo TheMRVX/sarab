@@ -128,6 +128,7 @@ pub fn generate_session_token() -> Result<String, anyhow::Error> {
     Ok(buf.iter().map(|b| format!("{:02x}", b)).collect())
 }
 
+#[allow(dead_code)]
 pub fn parse_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<String> {
     for part in cookie_header.split(';') {
         let part = part.trim();
@@ -143,6 +144,7 @@ pub fn parse_cookie_value(cookie_header: &str, cookie_name: &str) -> Option<Stri
     None
 }
 
+#[allow(dead_code)]
 pub fn parse_query_token(url: &str) -> Option<String> {
     if let Some((_, query)) = url.split_once('?') {
         for pair in query.split('&') {
@@ -156,12 +158,12 @@ pub fn parse_query_token(url: &str) -> Option<String> {
     None
 }
 
-pub fn make_session_cookie_header(token: &str) -> Header {
+pub fn make_legacy_cookie_eviction_header() -> Header {
     Header::from_bytes(
         &b"Set-Cookie"[..],
-        format!("sarab_session={}; HttpOnly; SameSite=Strict; Path=/", token).as_bytes(),
+        &b"sarab_session=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; Max-Age=0; HttpOnly; SameSite=Strict"[..],
     )
-    .expect("Static Set-Cookie header is valid")
+    .expect("Static Set-Cookie eviction header is valid")
 }
 
 pub fn is_allowed_origin(origin: &str, expected_port: u16) -> bool {
@@ -251,35 +253,11 @@ pub fn is_token_valid(request: &tiny_http::Request, expected_token: &str) -> boo
             }
         }
     }
-    if let Some(cookie) = get_header_value(request, "Cookie") {
-        if let Some(val) = parse_cookie_value(&cookie, "sarab_session") {
-            if val == expected_token {
-                return true;
-            }
-        }
-    }
     false
 }
 
 pub fn is_token_valid_for_mutation(request: &tiny_http::Request, expected_token: &str) -> bool {
-    if expected_token.is_empty() {
-        return false;
-    }
-    if let Some(token) = get_header_value(request, "X-Sarab-Token") {
-        if token.trim() == expected_token {
-            return true;
-        }
-    }
-    if let Some(auth) = get_header_value(request, "Authorization") {
-        if let Some(bearer) = auth.strip_prefix("Bearer ") {
-            if bearer.trim() == expected_token {
-                return true;
-            }
-        }
-    }
-    // Ambient cookies alone are intentionally not permitted for state mutations
-    // to strictly enforce anti-CSRF protection across ports.
-    false
+    is_token_valid(request, expected_token)
 }
 
 fn error_json(msg: impl ToString) -> String {
@@ -385,10 +363,10 @@ fn get_current_telemetry(
 
 pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     let addr = format!("{}:{}", host, port);
-    let local_url = format!("http://localhost:{}", port);
     let server = match Server::http(&addr) {
         Ok(s) => s,
         Err(e) => {
+            let local_url = format!("http://localhost:{}", port);
             if std::net::TcpStream::connect(&addr).is_ok() {
                 println!("\n========================================================");
                 println!("  Sarab Virtual GNSS Service is already active on {}", addr);
@@ -409,6 +387,13 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         }
     };
 
+    let actual_port = server
+        .server_addr()
+        .to_ip()
+        .map(|addr| addr.port())
+        .unwrap_or(port);
+    let local_url = format!("http://localhost:{}", actual_port);
+
     let session_token = match generate_session_token() {
         Ok(t) => t,
         Err(e) => {
@@ -421,14 +406,14 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
     if let Err(e) = crate::config::save_session_token(&session_token) {
         eprintln!("[!] Warning: Could not save session token: {}", e);
     }
-    if let Err(e) = crate::config::save_active_port(port) {
+    if let Err(e) = crate::config::save_active_port(actual_port) {
         eprintln!("[!] Warning: Could not save active port: {}", e);
     }
 
     println!("\n========================================================");
     println!("  Sarab Virtual GNSS Web Control Dashboard");
     println!("  URL: {}", local_url);
-    println!("  Listening on: http://{}", addr);
+    println!("  Listening on: http://{}:{}", host, actual_port);
     println!(
         "  Session Token saved to: {:?}",
         crate::config::get_session_token_path()
@@ -453,7 +438,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Enforce strict Host header validation to prevent DNS Rebinding attacks
         let host_header = get_header_value(&request, "Host");
         let is_host_valid = match host_header.as_deref() {
-            Some(h) => is_allowed_host(h, port),
+            Some(h) => is_allowed_host(h, actual_port),
             None => false,
         };
 
@@ -476,7 +461,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
         // Origin validation: block cross-origin requests from foreign ports or arbitrary websites
         if let Some(ref origin) = get_header_value(&request, "Origin") {
-            if !is_allowed_origin(origin, port) {
+            if !is_allowed_origin(origin, actual_port) {
                 let mut forbidden_resp =
                     Response::from_string(error_json("Forbidden: Invalid Origin"))
                         .with_status_code(StatusCode(403))
@@ -511,8 +496,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         }
 
         let origin_header_val = get_header_value(&request, "Origin")
-            .filter(|o| is_allowed_origin(o, port))
-            .unwrap_or_else(|| format!("http://localhost:{}", port));
+            .filter(|o| is_allowed_origin(o, actual_port))
+            .unwrap_or_else(|| format!("http://localhost:{}", actual_port));
 
         let cors_header = Header::from_bytes(
             &b"Access-Control-Allow-Origin"[..],
@@ -527,7 +512,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         // Handle CORS preflight
         if request.method() == &Method::Options {
             if let Some(ref origin) = get_header_value(&request, "Origin") {
-                if !is_allowed_origin(origin, port) {
+                if !is_allowed_origin(origin, actual_port) {
                     let mut forbidden_resp =
                         Response::from_string(error_json("Forbidden: Invalid Origin"))
                             .with_status_code(StatusCode(403));
@@ -545,7 +530,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             .expect("CORS Allow-Methods header is valid");
             let cors_headers = Header::from_bytes(
                 &b"Access-Control-Allow-Headers"[..],
-                &b"Content-Type, Authorization, X-Sarab-Token, Cookie"[..],
+                &b"Content-Type, Authorization, X-Sarab-Token"[..],
             )
             .expect("CORS Allow-Headers header is valid");
             let mut response = Response::empty(StatusCode(204))
@@ -581,7 +566,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                 continue;
             }
 
-            // Public Authentication Verification Endpoint (Exchanges token for session cookie)
+            // Public Authentication Verification Endpoint (Validates token and evicts legacy cookie)
             if url_path == "/api/auth/verify" && request.method() == &Method::Post {
                 let mut content = String::new();
                 let _ = request
@@ -600,13 +585,17 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
 
                 if is_match {
                     let mut resp = Response::from_string(
-                        serde_json::json!({ "success": true, "message": "Authenticated" })
-                            .to_string(),
+                        serde_json::json!({
+                            "success": true,
+                            "token": session_token,
+                            "message": "Authenticated"
+                        })
+                        .to_string(),
                     )
                     .with_header(json_header)
                     .with_header(cors_header.clone())
                     .with_header(cors_credentials.clone())
-                    .with_header(make_session_cookie_header(&session_token));
+                    .with_header(make_legacy_cookie_eviction_header());
                     for h in security_headers() {
                         resp.add_header(h);
                     }
@@ -622,36 +611,6 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
                     }
                     let _ = request.respond(resp);
                 }
-                continue;
-            }
-
-            // Same-origin Session Endpoint (Returns session token if authenticated via cookie or header)
-            if url_path == "/api/auth/session" && request.method() == &Method::Get {
-                let is_auth = is_token_valid(&request, &session_token);
-                let resp_data = if is_auth {
-                    serde_json::json!({
-                        "authenticated": true,
-                        "token": session_token
-                    })
-                } else {
-                    serde_json::json!({
-                        "authenticated": false,
-                        "token": null
-                    })
-                };
-                let mut resp = Response::from_string(resp_data.to_string())
-                    .with_status_code(if is_auth {
-                        StatusCode(200)
-                    } else {
-                        StatusCode(401)
-                    })
-                    .with_header(json_header)
-                    .with_header(cors_header.clone())
-                    .with_header(cors_credentials.clone());
-                for h in security_headers() {
-                    resp.add_header(h);
-                }
-                let _ = request.respond(resp);
                 continue;
             }
 
@@ -1332,16 +1291,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             trimmed_path
         };
 
-        let has_valid_cookie = get_header_value(&request, "Cookie")
-            .and_then(|c| parse_cookie_value(&c, "sarab_session"))
-            .map(|t| t == session_token)
-            .unwrap_or(false);
-        let has_valid_query = parse_query_token(request.url())
-            .map(|t| t == session_token)
-            .unwrap_or(false);
-        let is_request_authenticated = has_valid_cookie || has_valid_query;
-
-        let serve_index_html = |authenticated: bool| -> Option<Response<Cursor<Vec<u8>>>> {
+        let serve_index_html = || -> Option<Response<Cursor<Vec<u8>>>> {
             let index_file = Asset::get("index.html")?;
             let mime_header =
                 Header::from_bytes(&b"Content-Type"[..], &b"text/html; charset=utf-8"[..])
@@ -1351,10 +1301,8 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             let mut headers = vec![mime_header, cors_header.clone(), cors_credentials.clone()];
             headers.extend(security_headers());
 
-            // Attach session cookie if authenticated via query parameter or existing session
-            if authenticated {
-                headers.push(make_session_cookie_header(&session_token));
-            }
+            // Always actively evict legacy sarab_session cookie
+            headers.push(make_legacy_cookie_eviction_header());
 
             let len = raw.len();
             Some(Response::new(
@@ -1367,7 +1315,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
         };
 
         if path == "index.html" {
-            if let Some(resp) = serve_index_html(is_request_authenticated) {
+            if let Some(resp) = serve_index_html() {
                 let _ = request.respond(resp);
                 continue;
             }
@@ -1383,7 +1331,7 @@ pub fn start_server(host: &str, port: u16, open: bool) -> Result<()> {
             headers.extend(security_headers());
             let resp = Response::new(StatusCode(200), headers, Cursor::new(data), Some(len), None);
             let _ = request.respond(resp);
-        } else if let Some(resp) = serve_index_html(is_request_authenticated) {
+        } else if let Some(resp) = serve_index_html() {
             // SPA fallback: return index.html for client-side routing
             let _ = request.respond(resp);
         } else {
@@ -1505,6 +1453,18 @@ mod tests {
     }
 
     #[test]
+    fn test_legacy_cookie_eviction_header() {
+        let hdr = make_legacy_cookie_eviction_header();
+        assert_eq!(hdr.field.as_str().as_str(), "Set-Cookie");
+        let val = hdr.value.as_str();
+        assert!(val.contains("sarab_session="));
+        assert!(val.contains("Max-Age=0"));
+        assert!(val.contains("Expires=Thu, 01 Jan 1970"));
+        assert!(val.contains("HttpOnly"));
+        assert!(val.contains("SameSite=Strict"));
+    }
+
+    #[test]
     fn test_unauthenticated_index_html_does_not_leak_token() {
         let index_file = Asset::get("index.html").expect("index.html must exist");
         let html_str = std::str::from_utf8(index_file.data.as_ref()).expect("valid utf-8");
@@ -1512,6 +1472,14 @@ mod tests {
             !html_str.contains("sarab-token"),
             "Embedded index.html must not contain static or hardcoded sarab-token"
         );
+    }
+
+    #[test]
+    fn test_ephemeral_port_binding() {
+        let server = Server::http("127.0.0.1:0").expect("Ephemeral port 0 bind must succeed");
+        let port = server.server_addr().to_ip().map(|a| a.port()).unwrap_or(0);
+        assert_ne!(port, 0, "Bound port must be non-zero");
+        assert!(port > 1024, "Ephemeral port must be in unprivileged range");
     }
 
     #[test]
