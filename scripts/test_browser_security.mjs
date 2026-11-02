@@ -60,6 +60,167 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function verifyDashboardAndToken(context, dashboardPage, sarabPort, validToken) {
+  console.log('[*] Test 1: Launching Dashboard with initial token in query params...');
+  await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/?token=${validToken}`, {
+    waitUntil: 'domcontentloaded',
+  });
+
+  // Wait 250ms for React / client.ts initAuthFromLocation() to execute
+  await sleep(250);
+
+  const currentUrl = dashboardPage.url();
+  console.log(`  [+] Dashboard current URL: ${currentUrl}`);
+  assert.equal(
+    currentUrl,
+    `http://127.0.0.1:${sarabPort}/`,
+    `Expected token to be scrubbed from URL address bar, got: ${currentUrl}`
+  );
+
+  const locationSearch = await dashboardPage.evaluate(() => window.location.search);
+  assert.equal(locationSearch, '', 'window.location.search must be empty after scrubbing');
+
+  const metaToken = await dashboardPage.evaluate(() =>
+    document.querySelector('meta[name="sarab-token"]')
+  );
+  assert.equal(metaToken, null, 'No <meta name="sarab-token"> tag should be injected into DOM');
+
+  const storedToken = await dashboardPage.evaluate(() =>
+    sessionStorage.getItem('sarab_token')
+  );
+  assert.equal(storedToken, validToken, 'Token must be safely persisted in origin-isolated sessionStorage');
+
+  // Verify cookies in browser context: MUST NOT have any sarab_session cookie
+  const cookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
+  const sessionCookie = cookies.find((c) => c.name === 'sarab_session');
+  assert.equal(sessionCookie, undefined, 'sarab_session cookie must NOT be set in browser context');
+  console.log('  [+] Zero ambient cookie retention & sessionStorage isolation verified.');
+
+  // Same-origin API status call with X-Sarab-Token succeeds
+  const statusRes = await dashboardPage.evaluate(async (tok) => {
+    const r = await fetch('/api/auth/status', {
+      headers: { 'X-Sarab-Token': tok },
+    });
+    return { status: r.status, data: await r.json() };
+  }, validToken);
+  assert.equal(statusRes.status, 200, 'Same-origin /api/auth/status should succeed');
+  assert.equal(statusRes.data.authenticated, true);
+  console.log('  [+] Same-origin header auth verified.');
+
+  // Same-origin mutating call with X-Sarab-Token succeeds
+  const mutateRes = await dashboardPage.evaluate(async (tok) => {
+    const r = await fetch('/api/config', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Sarab-Token': tok,
+      },
+      body: JSON.stringify({
+        latitude: 35.6892,
+        longitude: 51.3890,
+        altitude: 1200.0,
+        accuracy: 2.5,
+        enabled: true,
+        driftEnabled: true,
+        driftRadius: 1.2,
+      }),
+    });
+    return { status: r.status, data: await r.json() };
+  }, validToken);
+  assert.equal(mutateRes.status, 200, 'Same-origin authorized mutation should succeed');
+  console.log('  [+] Same-origin authorized mutation with X-Sarab-Token verified.');
+}
+
+async function verifyLegacyCookieEviction(context, dashboardPage, sarabPort) {
+  console.log('[*] Test 2: Testing legacy cookie expulsion on upgrade...');
+  await context.addCookies([{
+    name: 'sarab_session',
+    value: 'stale_legacy_cookie_value_999',
+    domain: '127.0.0.1',
+    path: '/',
+    httpOnly: true,
+    sameSite: 'Strict',
+  }]);
+  await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
+  await sleep(150);
+  const postEvictCookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
+  const evictedCookie = postEvictCookies.find((c) => c.name === 'sarab_session');
+  assert.equal(evictedCookie, undefined, 'Legacy sarab_session cookie must be evicted by Set-Cookie Max-Age=0');
+  console.log('  [+] Legacy cookie active eviction verified.');
+}
+
+async function verifyCrossOriginIsolation(context, dashboardPage, sarabPort, attackerReceivedCookies, validToken) {
+  console.log('[*] Test 3: Testing cross-origin attack from foreign localhost port...');
+  const attackerPage = await context.newPage();
+  await attackerPage.goto(`http://127.0.0.1:${ATTACKER_PORT}/`, {
+    waitUntil: 'domcontentloaded',
+  });
+
+  // Run Attack 1: Attempted Cross-Origin Read
+  await attackerPage.evaluate(async () => {
+    await window.runReadAttack();
+  });
+  const readResult = await attackerPage.evaluate(() => window.attackResults);
+  assert.ok(
+    readResult.readBlocked || readResult.readStatus === 403,
+    `Expected cross-origin read to be blocked or return 403, got: ${JSON.stringify(readResult)}`
+  );
+  console.log('  [+] Cross-origin read attack from foreign port rejected.');
+
+  // Run Attack 2: Attempted CSRF Mutation (Ambient Cookie only)
+  await attackerPage.evaluate(async () => {
+    await window.runMutationAttack();
+  });
+  const mutationResult = await attackerPage.evaluate(() => window.attackResults);
+  assert.ok(
+    mutationResult.mutationBlocked || mutationResult.mutationStatus === 403 || mutationResult.mutationStatus === 401,
+    `Expected cross-origin mutation without token to return 403/401 or be blocked, got: ${JSON.stringify(mutationResult)}`
+  );
+  console.log('  [+] Cross-origin CSRF mutation attack without token rejected.');
+
+  // Run Attack 3: Custom Header Preflight Attack
+  await attackerPage.evaluate(async () => {
+    await window.runCustomHeaderAttack();
+  });
+  const headerResult = await attackerPage.evaluate(() => window.attackResults);
+  assert.ok(
+    headerResult.headerBlocked || headerResult.headerStatus === 403,
+    `Expected preflight for foreign origin to be blocked, got: ${JSON.stringify(headerResult)}`
+  );
+  console.log('  [+] Cross-origin preflight with custom header rejected.');
+
+  // Verify that attacker server received ZERO cookies from the browser
+  assert.equal(
+    attackerReceivedCookies.some((c) => c.includes('sarab_session') || c.includes(validToken)),
+    false,
+    'Attacker server must NEVER receive sarab_session cookie or session token in request headers'
+  );
+  console.log('  [+] Attacker server confirmed: zero leaked tokens or cookies received.');
+
+  // Verify backend coordinates were NOT mutated by attacker
+  const verifyCfgRes = await dashboardPage.evaluate(async (tok) => {
+    const r = await fetch('/api/config', {
+      headers: { 'X-Sarab-Token': tok },
+    });
+    return await r.json();
+  }, validToken);
+  assert.notEqual(verifyCfgRes.latitude, 12.345, 'Backend state must NOT have been mutated by CSRF attempt');
+  assert.notEqual(verifyCfgRes.latitude, 99.9, 'Backend state must NOT have been mutated by preflight attempt');
+  console.log('  [+] Backend state immunity verified: coordinates remain uncorrupted.');
+  await attackerPage.close();
+}
+
+async function verifySecurityHeaders(dashboardPage, sarabPort) {
+  console.log('[*] Test 4: Verifying Security Headers in browser response...');
+  const resp = await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
+  const headers = resp.headers();
+  assert.equal(headers['x-frame-options'], 'DENY');
+  assert.equal(headers['x-content-type-options'], 'nosniff');
+  assert.equal(headers['referrer-policy'], 'no-referrer');
+  assert.ok(headers['cache-control'].includes('no-store'));
+  console.log('  [+] Security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cache-Control) verified.');
+}
+
 async function runBrowserSecuritySuite() {
   console.log('[*] Starting Sarab Browser-Level Security Regression Suite...');
 
@@ -225,171 +386,12 @@ async function runBrowserSecuritySuite() {
   const context = await browser.newContext();
   const dashboardPage = await context.newPage();
 
-    // =========================================================================
-    // Test 1: Trusted Dashboard Launch & Token Sanitization
-    // =========================================================================
-    console.log('[*] Test 1: Launching Dashboard with initial token in query params...');
-    await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/?token=${validToken}`, {
-      waitUntil: 'domcontentloaded',
-    });
+  await verifyDashboardAndToken(context, dashboardPage, sarabPort, validToken);
+  await verifyLegacyCookieEviction(context, dashboardPage, sarabPort);
+  await verifyCrossOriginIsolation(context, dashboardPage, sarabPort, attackerReceivedCookies, validToken);
+  await verifySecurityHeaders(dashboardPage, sarabPort);
 
-    // Wait 250ms for React / client.ts initAuthFromLocation() to execute
-    await sleep(250);
-
-    const currentUrl = dashboardPage.url();
-    console.log(`  [+] Dashboard current URL: ${currentUrl}`);
-    assert.equal(
-      currentUrl,
-      `http://127.0.0.1:${sarabPort}/`,
-      `Expected token to be scrubbed from URL address bar, got: ${currentUrl}`
-    );
-
-    const locationSearch = await dashboardPage.evaluate(() => window.location.search);
-    assert.equal(locationSearch, '', 'window.location.search must be empty after scrubbing');
-
-    const metaToken = await dashboardPage.evaluate(() =>
-      document.querySelector('meta[name="sarab-token"]')
-    );
-    assert.equal(metaToken, null, 'No <meta name="sarab-token"> tag should be injected into DOM');
-
-    const storedToken = await dashboardPage.evaluate(() =>
-      sessionStorage.getItem('sarab_token')
-    );
-    assert.equal(storedToken, validToken, 'Token must be safely persisted in origin-isolated sessionStorage');
-
-    // Verify cookies in browser context: MUST NOT have any sarab_session cookie
-    const cookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
-    const sessionCookie = cookies.find((c) => c.name === 'sarab_session');
-    assert.equal(sessionCookie, undefined, 'sarab_session cookie must NOT be set in browser context');
-    console.log('  [+] Zero ambient cookie retention & sessionStorage isolation verified.');
-
-    // Same-origin API status call with X-Sarab-Token succeeds
-    const statusRes = await dashboardPage.evaluate(async (tok) => {
-      const r = await fetch('/api/auth/status', {
-        headers: { 'X-Sarab-Token': tok },
-      });
-      return { status: r.status, data: await r.json() };
-    }, validToken);
-    assert.equal(statusRes.status, 200, 'Same-origin /api/auth/status should succeed');
-    assert.equal(statusRes.data.authenticated, true);
-    console.log('  [+] Same-origin header auth verified.');
-
-    // Same-origin mutating call with X-Sarab-Token succeeds
-    const mutateRes = await dashboardPage.evaluate(async (tok) => {
-      const r = await fetch('/api/config', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Sarab-Token': tok,
-        },
-        body: JSON.stringify({
-          latitude: 35.6892,
-          longitude: 51.3890,
-          altitude: 1200.0,
-          accuracy: 2.5,
-          enabled: true,
-          driftEnabled: true,
-          driftRadius: 1.2,
-        }),
-      });
-      return { status: r.status, data: await r.json() };
-    }, validToken);
-    assert.equal(mutateRes.status, 200, 'Same-origin authorized mutation should succeed');
-    console.log('  [+] Same-origin authorized mutation with X-Sarab-Token verified.');
-
-    // =========================================================================
-    // Test 2: Legacy Cookie Active Eviction on Upgrade
-    // =========================================================================
-    console.log('[*] Test 2: Testing legacy cookie expulsion on upgrade...');
-    await context.addCookies([{
-      name: 'sarab_session',
-      value: 'stale_legacy_cookie_value_999',
-      domain: '127.0.0.1',
-      path: '/',
-      httpOnly: true,
-      sameSite: 'Strict',
-    }]);
-    await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
-    await sleep(150);
-    const postEvictCookies = await context.cookies(`http://127.0.0.1:${sarabPort}`);
-    const evictedCookie = postEvictCookies.find((c) => c.name === 'sarab_session');
-    assert.equal(evictedCookie, undefined, 'Legacy sarab_session cookie must be evicted by Set-Cookie Max-Age=0');
-    console.log('  [+] Legacy cookie active eviction verified.');
-
-    // =========================================================================
-    // Test 3: Cross-Origin Boundary & Anti-CSRF on Foreign Localhost Port
-    // =========================================================================
-    console.log('[*] Test 3: Testing cross-origin attack from foreign localhost port...');
-    const attackerPage = await context.newPage();
-    await attackerPage.goto(`http://127.0.0.1:${ATTACKER_PORT}/`, {
-      waitUntil: 'domcontentloaded',
-    });
-
-    // Run Attack 1: Attempted Cross-Origin Read
-    await attackerPage.evaluate(async () => {
-      await window.runReadAttack();
-    });
-    const readResult = await attackerPage.evaluate(() => window.attackResults);
-    assert.ok(
-      readResult.readBlocked || readResult.readStatus === 403,
-      `Expected cross-origin read to be blocked or return 403, got: ${JSON.stringify(readResult)}`
-    );
-    console.log('  [+] Cross-origin read attack from foreign port rejected.');
-
-    // Run Attack 2: Attempted CSRF Mutation (Ambient Cookie only)
-    await attackerPage.evaluate(async () => {
-      await window.runMutationAttack();
-    });
-    const mutationResult = await attackerPage.evaluate(() => window.attackResults);
-    assert.ok(
-      mutationResult.mutationBlocked || mutationResult.mutationStatus === 403 || mutationResult.mutationStatus === 401,
-      `Expected cross-origin mutation without token to return 403/401 or be blocked, got: ${JSON.stringify(mutationResult)}`
-    );
-    console.log('  [+] Cross-origin CSRF mutation attack without token rejected.');
-
-    // Run Attack 3: Custom Header Preflight Attack
-    await attackerPage.evaluate(async () => {
-      await window.runCustomHeaderAttack();
-    });
-    const headerResult = await attackerPage.evaluate(() => window.attackResults);
-    assert.ok(
-      headerResult.headerBlocked || headerResult.headerStatus === 403,
-      `Expected preflight for foreign origin to be blocked, got: ${JSON.stringify(headerResult)}`
-    );
-    console.log('  [+] Cross-origin preflight with custom header rejected.');
-
-    // Verify that attacker server received ZERO cookies from the browser
-    assert.equal(
-      attackerReceivedCookies.some((c) => c.includes('sarab_session') || c.includes(validToken)),
-      false,
-      'Attacker server must NEVER receive sarab_session cookie or session token in request headers'
-    );
-    console.log('  [+] Attacker server confirmed: zero leaked tokens or cookies received.');
-
-    // Verify backend coordinates were NOT mutated by attacker
-    const verifyCfgRes = await dashboardPage.evaluate(async (tok) => {
-      const r = await fetch('/api/config', {
-        headers: { 'X-Sarab-Token': tok },
-      });
-      return await r.json();
-    }, validToken);
-    assert.notEqual(verifyCfgRes.latitude, 12.345, 'Backend state must NOT have been mutated by CSRF attempt');
-    assert.notEqual(verifyCfgRes.latitude, 99.9, 'Backend state must NOT have been mutated by preflight attempt');
-    console.log('  [+] Backend state immunity verified: coordinates remain uncorrupted.');
-
-    // =========================================================================
-    // Test 4: Security Headers Verification
-    // =========================================================================
-    console.log('[*] Test 4: Verifying Security Headers in browser response...');
-    const resp = await dashboardPage.goto(`http://127.0.0.1:${sarabPort}/`);
-    const headers = resp.headers();
-    assert.equal(headers['x-frame-options'], 'DENY');
-    assert.equal(headers['x-content-type-options'], 'nosniff');
-    assert.equal(headers['referrer-policy'], 'no-referrer');
-    assert.ok(headers['cache-control'].includes('no-store'));
-    console.log('  [+] Security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cache-Control) verified.');
-
-    console.log('=== All Browser Security Regression Invariants Passed (4/4) ===');
+  console.log('=== All Browser Security Regression Invariants Passed (4/4) ===');
   } finally {
     if (browser) {
       try { await browser.close(); } catch {}
