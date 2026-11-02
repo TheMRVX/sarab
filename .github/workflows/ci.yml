@@ -3,15 +3,8 @@ name: CI
 on:
   push:
     branches: [ "main" ]
+  # This check is required by main-protection, including for docs-only PRs.
   pull_request:
-    paths:
-      - 'app/**'
-      - 'driver/**'
-      - 'gui/**'
-      - 'scripts/**'
-      - '.github/workflows/**'
-      - 'Cargo.lock'
-      - 'Cargo.toml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
