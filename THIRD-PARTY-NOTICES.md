@@ -8,7 +8,7 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256 (LF-normalized): 90dbe5f938c712991867cec4dced5e3f1d9617af99df5f8a8d855a8a27242d86
+- Cargo.lock SHA-256 (LF-normalized): 07d70c6b39a6bb9869e68cffe2ffa1fd17d34f8a30dd87bf28d6bc6506af43a4
 - package-lock.json SHA-256 (LF-normalized): 5de6963fdec48bffd3ed5c69ffe532d0d51553d25257a9d60fd9a9870f3be8a4
 
 ## Rust dependency notices
@@ -2678,7 +2678,7 @@ Used by:
 - serde@1.0.229
 - serde_core@1.0.229
 - serde_derive@1.0.229
-- serde_json@1.0.151
+- serde_json@1.0.154
 - syn@2.0.119
 - syn@3.0.6
 - unicode-ident@1.0.26
