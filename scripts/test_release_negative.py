@@ -20,7 +20,6 @@ mock remote origins and mock `gh` CLI implementations to verify that:
 import json
 import os
 import shutil
-import stat
 import subprocess
 import tempfile
 from pathlib import Path
@@ -57,6 +56,8 @@ def setup_mock_repo(tmp_path: Path):
     shutil.copy(RELEASE_SCRIPT, scripts_dir / "release.sh")
     (scripts_dir / "release.sh").chmod(0o755)
 
+    shutil.copy(REPO_ROOT / "scripts/check_release_checks.py", scripts_dir / "check_release_checks.py")
+
     # Create dummy app/Cargo.toml
     app_dir = work_dir / "app"
     app_dir.mkdir(parents=True)
@@ -73,7 +74,11 @@ def setup_mock_repo(tmp_path: Path):
 def create_mock_gh(bin_dir: Path, response_payload: dict, exit_code: int = 0):
     """Creates an executable mock `gh` script in bin_dir."""
     gh_script = bin_dir / "gh"
-    json_str = json.dumps(response_payload)
+    sha = run(["git", "rev-parse", "HEAD"], cwd=bin_dir.parent / "work").stdout.strip()
+    for check_run in response_payload["check_runs"]:
+        check_run.setdefault("head_sha", sha)
+        check_run.setdefault("app", {"slug": "github-actions"})
+    json_str = json.dumps([response_payload])
     content = f"""#!/bin/sh
 if [ "$1" = "api" ]; then
     cat << 'EOF'
@@ -176,7 +181,7 @@ def test_release_script_safeguards():
         })
         res = run(["bash", "scripts/release.sh", "v1.0.3", "--yes"], cwd=work_dir, env=env, check=False)
         assert res.returncode != 0, "release.sh accepted in-progress checks"
-        assert "check run(s) are still in progress" in res.stdout or "check run(s) are still in progress" in res.stderr
+        assert "Required check still in progress" in res.stdout or "Required check still in progress" in res.stderr
         print("  [+] In-progress GitHub checks rejected.")
 
         # 10. Reject when mock gh reports failed checks
@@ -189,16 +194,16 @@ def test_release_script_safeguards():
         })
         res = run(["bash", "scripts/release.sh", "v1.0.3", "--yes"], cwd=work_dir, env=env, check=False)
         assert res.returncode != 0, "release.sh accepted failed checks"
-        assert "check run(s) did not succeed" in res.stdout or "check run(s) did not succeed" in res.stderr
+        assert "Required check did not succeed" in res.stdout or "Required check did not succeed" in res.stderr
         print("  [+] Failed GitHub checks rejected.")
 
-        # 11. Positive verification: all checks completed successfully -> tag created & pushed!
+        # 11. Positive verification: all eight required checks passed.
+        from check_release_checks import REQUIRED_CHECKS
         create_mock_gh(bin_dir, {
-            "total_count": 3,
+            "total_count": len(REQUIRED_CHECKS),
             "check_runs": [
-                {"name": "Fast Quality Gate & Build Check", "status": "completed", "conclusion": "success"},
-                {"name": "Rust and frontend license inventory", "status": "completed", "conclusion": "success"},
-                {"name": "Real-Browser Security Suite", "status": "completed", "conclusion": "success"}
+                {"name": name, "status": "completed", "conclusion": "success"}
+                for name in REQUIRED_CHECKS
             ]
         })
         res = run(["bash", "scripts/release.sh", "v1.0.3", "--yes"], cwd=work_dir, env=env, check=True)

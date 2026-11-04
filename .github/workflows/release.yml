@@ -28,10 +28,38 @@ jobs:
     runs-on: windows-latest
     outputs:
       release_tag: ${{ steps.package.outputs.tag }}
+      release_sha: ${{ steps.target.outputs.sha }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.release_tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify release target and required CI
+        id: target
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          PUBLISH: ${{ (github.event_name == 'push' && github.ref_type == 'tag') || (github.event_name == 'workflow_dispatch' && inputs.publish == true) }}
+        run: |
+          set -euo pipefail
+          build_sha="$(git rev-parse HEAD)"
+          echo "sha=$build_sha" >> "$GITHUB_OUTPUT"
+          if [[ "$PUBLISH" == true ]]; then
+            tag="${INPUT_RELEASE_TAG:-$GITHUB_REF_NAME}"
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+              echo "Publishing requires an existing version tag" >&2
+              exit 1
+            fi
+            tag_sha="$(git rev-parse "refs/tags/$tag^{commit}")"
+            [[ "$tag_sha" == "$build_sha" ]]
+            git merge-base --is-ancestor "$build_sha" origin/main
+            python scripts/check_release_checks.py --sha "$build_sha" --repo "$GITHUB_REPOSITORY"
+          fi
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@6fb02220983dee41ce7ae257b6f4d8f9bf5ed4ce # v2.0.0
@@ -245,6 +273,9 @@ jobs:
           if ($tag -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$') {
               throw "[-] Invalid release tag '$tag'. Expected SemVer like v0.1.1 or v1.0.0."
           }
+          if (($tag -replace '^v', '' -replace '-.*$', '') -ne $versionMatch.Groups[1].Value) {
+              throw "Release tag does not match the checked-out Cargo package version"
+          }
 
           # Stage release assets folder
           New-Item -ItemType Directory -Path "release_assets" -Force | Out-Null
@@ -284,8 +315,10 @@ jobs:
               throw "[-] Inno Setup installer output not found at $installerExe"
           }
 
-          Copy-Item "SHA256SUMS.txt" -Destination "release_assets\SHA256SUMS.txt"
           Copy-Item "$packageDir\SarabGnss.cer" -Destination "release_assets\SarabGnss.cer"
+          $certificateHash = (Get-FileHash -Path "release_assets\SarabGnss.cer" -Algorithm SHA256).Hash.ToLower()
+          "$certificateHash  SarabGnss.cer" | Out-File -FilePath "SHA256SUMS.txt" -Encoding ascii -Append
+          Copy-Item "SHA256SUMS.txt" -Destination "release_assets\SHA256SUMS.txt"
 
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
@@ -305,6 +338,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Checkout the verified build commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ needs.build-and-release.outputs.release_sha }}
+          persist-credentials: false
+
       - name: Download release build artifacts
         uses: actions/download-artifact@cc203385981b70ca67e1cc392babf9cc229d5806 # v4.1.9
         with:
@@ -316,23 +355,6 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ needs.build-and-release.outputs.release_tag }}
+          RELEASE_SHA: ${{ needs.build-and-release.outputs.release_sha }}
         run: |
-          set -euo pipefail
-          prerelease=()
-          if [[ "$TAG" =~ (alpha|beta|rc) ]]; then
-            prerelease=(--prerelease)
-          fi
-          echo "[*] Publishing GitHub Release for tag: $TAG ..."
-
-          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "[*] Release $TAG exists, uploading/updating assets..."
-            gh release upload "$TAG" release_assets/* -R "$GITHUB_REPOSITORY" --clobber
-          else
-            gh release create "$TAG" release_assets/* \
-              -R "$GITHUB_REPOSITORY" \
-              --target "$GITHUB_SHA" \
-              --title "Sarab $TAG" \
-              --generate-notes \
-              "${prerelease[@]}"
-          fi
-          echo "[+] GitHub Release published successfully: $TAG"
+          bash scripts/publish_release.sh

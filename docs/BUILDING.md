@@ -40,4 +40,14 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md) for details and [the GitHub community 
 
 The repository has an Actions workflow that builds an archive, signs test driver components, compiles an optional installer and publishes release assets on version tags or manual dispatch. Do not assume signing equals production trust. Check each asset and checksum before installation.
 
-The current `scripts/release.sh` can create a local version-bump commit, tag and push. It should **not** be run directly on a protected `main` branch in a PR-first workflow without an approved release procedure. Release engineering improvements should be scoped separately.
+Merge the version bump and generated assets through a PR first. From a clean `main` synchronized with `origin/main`, run `bash scripts/release.sh vX.Y.Z`. The script requires all eight checks in the main branch ruleset to succeed on that exact commit, prompts before tagging (or accepts `--yes`), and pins the annotated tag to the verified SHA. Missing, skipped, pending, failed or non-GitHub-Actions required checks block tagging.
+
+Version tags matching `v*` must not be moved or deleted. To correct a published version, prepare a new version through a PR. A manual Release run is a dry run unless `publish=true`; publishing also requires an existing version tag whose commit is on `main` and has passed all required checks. A supplied `release_tag` is checked out explicitly so the built code matches the tag.
+
+The publishing job creates a draft, uploads all four assets, then publishes it. It never overwrites an existing release or draft. A failed upload leaves an unpublished draft for maintainer inspection. Release immutability locks the assets and associated tag once published; it applies to future releases, not retroactively to older ones. The checksum file covers the ZIP, installer and public certificate.
+
+## Dependency updates
+
+Dependabot checks GitHub Actions, `app/Cargo.toml` and `gui/package.json` weekly on Mondays (Asia/Tehran). Compatible Cargo/npm updates are grouped; major updates remain separate. Actions retain full commit SHA pins. Updates open ordinary PRs and must pass the same checks; auto-merge is not enabled. Existing Dependabot security updates remain enabled independently of the weekly version-update schedule.
+
+Dependency changes may also require rebuilding `gui/dist` and regenerating `THIRD-PARTY-NOTICES.md` using the license-audit workflow's procedure. Review those generated changes and license results before merging an update PR.

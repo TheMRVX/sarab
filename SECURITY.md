@@ -10,7 +10,7 @@ Security fixes are prioritized for the most recent published release and the cur
 
 **Do not publish exploit details, tokens, recovery keys or vulnerabilities in public issues, pull requests or GitHub Discussions.**
 
-As reviewed on 2026-10-31, GitHub Private Vulnerability Reporting is **not enabled** for this repository, and no dedicated security email address is published. Before reporting, check the repository's [Security tab](https://github.com/TheMRVX/sarab/security) for any newly enabled private report mechanism. If one exists, use it. Otherwise, contact the maintainer **privately** using an appropriate contact method they have made available on their [GitHub profile](https://github.com/TheMRVX); do not disclose details publicly while a secure channel is being arranged. If no private channel is available, do not post exploit details to an issue.
+Use GitHub's [private vulnerability reporting form](https://github.com/TheMRVX/sarab/security/advisories/new), enabled for this repository on 2026-11-02. Reports are private to the maintainers and people explicitly involved in the advisory. If the form is unavailable, check the [Security tab](https://github.com/TheMRVX/sarab/security) or contact the maintainer privately using a contact method published on their [GitHub profile](https://github.com/TheMRVX). Do not post exploit details publicly while a secure channel is being arranged.
 
 In your private report, include affected versions/commits, prerequisites, minimal reproduction steps, impact and possible mitigations. Omit real credentials or personal location histories unless absolutely necessary and authorized.
 
