@@ -61,6 +61,16 @@ fn is_text_file(path: &str) -> bool {
     text_exts.iter().any(|ext| lower.ends_with(ext)) || lower.contains(".env")
 }
 
+fn encode_hex_lower(bytes: impl AsRef<[u8]>) -> String {
+    use std::fmt::Write;
+    let bytes = bytes.as_ref();
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        let _ = write!(s, "{:02x}", b);
+    }
+    s
+}
+
 fn compute_source_fingerprint(
     gui_dir: &Path,
     files: &BTreeSet<String>,
@@ -103,7 +113,7 @@ fn compute_source_fingerprint(
         hasher.update(line.as_bytes());
     }
 
-    format!("{:x}", hasher.finalize())
+    encode_hex_lower(hasher.finalize())
 }
 
 fn compute_dist_fingerprint(dist_dir: &Path) -> (String, BTreeMap<String, String>) {
@@ -121,7 +131,7 @@ fn compute_dist_fingerprint(dist_dir: &Path) -> (String, BTreeMap<String, String
         let content = fs::read(&full_path).unwrap_or_default();
         let mut file_hasher = Sha256::new();
         file_hasher.update(&content);
-        let file_hash = format!("{:x}", file_hasher.finalize());
+        let file_hash = encode_hex_lower(file_hasher.finalize());
 
         master_hasher.update(rel.as_bytes());
         master_hasher.update(b"\n");
@@ -131,7 +141,7 @@ fn compute_dist_fingerprint(dist_dir: &Path) -> (String, BTreeMap<String, String
         asset_hashes.insert(rel, file_hash);
     }
 
-    (format!("{:x}", master_hasher.finalize()), asset_hashes)
+    (encode_hex_lower(master_hasher.finalize()), asset_hashes)
 }
 
 fn validate_embedded_frontend() {
