@@ -8,7 +8,7 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256 (LF-normalized): 207483ae136a50c83160d06db90b58afdb68a0f4157849016897e2440a05c3b4
+- Cargo.lock SHA-256 (LF-normalized): 90dbe5f938c712991867cec4dced5e3f1d9617af99df5f8a8d855a8a27242d86
 - package-lock.json SHA-256 (LF-normalized): 5de6963fdec48bffd3ed5c69ffe532d0d51553d25257a9d60fd9a9870f3be8a4
 
 ## Rust dependency notices
@@ -2505,7 +2505,7 @@ SOFTWARE.
 ## MIT License
 
 Used by:
-- sarab@1.0.2
+- sarab@1.0.3
 - windows-core@0.58.0
 - windows-implement@0.58.0
 - windows-interface@0.58.0
