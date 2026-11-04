@@ -8,7 +8,7 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256 (LF-normalized): 07d70c6b39a6bb9869e68cffe2ffa1fd17d34f8a30dd87bf28d6bc6506af43a4
+- Cargo.lock SHA-256 (LF-normalized): b975a87ec7c6a6bcde54a8ca4c8126229944794075d73019f522e583f81f1866
 - package-lock.json SHA-256 (LF-normalized): 5de6963fdec48bffd3ed5c69ffe532d0d51553d25257a9d60fd9a9870f3be8a4
 
 ## Rust dependency notices
@@ -1774,7 +1774,7 @@ DEALINGS IN THE SOFTWARE.
 ## MIT License
 
 Used by:
-- windows-service@0.7.0
+- windows-service@0.8.1
 
 ~~~~text
 Copyright (c) 2017 Amagicom AB
@@ -2512,7 +2512,6 @@ Used by:
 - windows-link@0.2.1
 - windows-result@0.2.0
 - windows-strings@0.1.0
-- windows-sys@0.52.0
 - windows-sys@0.61.2
 - windows-targets@0.52.6
 - windows@0.58.0
