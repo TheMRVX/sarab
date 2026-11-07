@@ -60,7 +60,7 @@ These describe implemented code paths, **not a certification of behavior on ever
 ## Getting started
 
 1. Download the latest available archive or installer from [GitHub Releases](https://github.com/TheMRVX/sarab/releases). Check the specific release's notes, assets, and SHA256 checksums:
-   - **Windows Installer (`SarabSetup-vX.Y.Z.exe`)**: Elevated system-wide setup (`C:\Program Files\Sarab`). Includes the **Add Sarab to PATH** task (checked by default) and creates Start Menu shortcuts, including **Sarab Command Prompt**. After installation, **open a fresh terminal window** to inherit the updated system PATH.
+   - **Windows Installer (`SarabSetup-vX.Y.Z.exe`)**: Elevated system-wide setup (`%ProgramFiles%\Sarab`). Includes the **Add Sarab to PATH** task (checked by default) and creates Start Menu shortcuts, including **Sarab Command Prompt**. Terminals already open before installation do not receive the updated PATH automatically; open a fresh terminal window after installation to inherit the updated system PATH.
    - **Portable ZIP (`sarab-vX.Y.Z-x64.zip`)**: Standalone archive. Extract anywhere and execute directly from its directory (`.\sarab.exe`) without modifying system PATH or registering shortcuts.
 2. On an authorized Windows test machine, open an elevated terminal. For advanced mode, review [driver installation and Test Signing](docs/INSTALLATION.md) **before** changing firmware or boot configuration.
 3. With a driver installed and running, configure a test fix:
@@ -78,8 +78,11 @@ These describe implemented code paths, **not a certification of behavior on ever
    .\sarab.exe status
    .\sarab.exe read
 
-   # Or from any PowerShell location using the call operator (&) with full quoted path:
-   & "C:\Program Files\Sarab\sarab.exe" status
+   # Or using the full quoted path:
+   # In PowerShell (call operator &):
+   & "$env:ProgramFiles\Sarab\sarab.exe" status
+   # In Command Prompt:
+   "%ProgramFiles%\Sarab\sarab.exe" status
    ```
 
    For a no-driver fallback instead, run:
@@ -98,7 +101,41 @@ These describe implemented code paths, **not a certification of behavior on ever
 
    The default binding is `127.0.0.1:8090`. Avoid binding the control API to a publicly accessible network interface.
 
-> **Tip:** If PowerShell reports `'sarab' is not recognized as the name of a cmdlet...` or CMD reports `'sarab' is not recognized as an internal or external command`, open a **fresh terminal** so the newly added system PATH takes effect. Alternatively, use the **Sarab Command Prompt** Start Menu shortcut, run `.\sarab.exe` directly from the installation folder, or use PowerShell's call operator (`& "C:\Program Files\Sarab\sarab.exe"`).
+### If sarab is not recognized
+
+The installer adds Sarab to the system PATH by default, but Command Prompt and PowerShell windows open before installation do not automatically receive the updated PATH.
+
+Close the current terminal, open a new Command Prompt or PowerShell window, and run:
+
+```cmd
+sarab --version
+```
+
+If `sarab` is still not recognized, use one of these alternatives:
+
+1. **Start Menu shortcut**: Open **Start Menu > Sarab Virtual GNSS > Sarab Command Prompt**.
+2. **Run from the installation directory**:
+   - In PowerShell:
+     ```powershell
+     cd "$env:ProgramFiles\Sarab"
+     .\sarab.exe token --raw
+     ```
+   - In Command Prompt:
+     ```cmd
+     cd /d "%ProgramFiles%\Sarab"
+     sarab.exe token --raw
+     ```
+3. **Run using the full installation path**:
+   - In PowerShell:
+     ```powershell
+     & "$env:ProgramFiles\Sarab\sarab.exe" token --raw
+     ```
+   - In Command Prompt:
+     ```cmd
+     "%ProgramFiles%\Sarab\sarab.exe" token --raw
+     ```
+
+Custom installations should replace the path with their selected folder. The portable ZIP package does not modify PATH automatically.
 
 Use `sarab --help` (or `.\sarab.exe --help`) as the authoritative interface for the build you downloaded. See [the CLI and route guide](docs/USAGE.md) and [installation notes](docs/INSTALLATION.md) for full commands, automation options, and diagnostics.
 

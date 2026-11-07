@@ -184,7 +184,7 @@ export const App: React.FC = () => {
         showNotification('Dashboard unlocked successfully', 'success');
         await loadData();
       } else {
-        setAuthError('Invalid or expired session token. Run `sarab token` in terminal to view the active token.');
+        setAuthError('Invalid or expired session token. Use one of the commands below to view the active token.');
       }
     } catch {
       setAuthError('Connection error while verifying token. Verify Sarab backend is running.');
@@ -534,9 +534,13 @@ export const App: React.FC = () => {
                 gap: 1,
               }}
             >
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
-                  From terminal when added to PATH (Default):
+              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Retrieve Active Token:
+              </Typography>
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  PATH (Default):
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
                   sarab token
@@ -545,9 +549,9 @@ export const App: React.FC = () => {
 
               <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
 
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
-                  From portable / installation folder (PowerShell):
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Current Directory / Portable:
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
                   .\sarab.exe token
@@ -556,20 +560,20 @@ export const App: React.FC = () => {
 
               <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
 
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
-                  From arbitrary path (PowerShell call operator):
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Full Path (PowerShell):
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
-                  &amp; &quot;&lt;path-to-sarab&gt;\sarab.exe&quot; token
+                  &amp; &quot;&lt;path&gt;\sarab.exe&quot; token
                 </Typography>
               </Box>
 
               <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
 
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
-                  Or use the Start Menu shortcut:
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Start Menu:
                 </Typography>
                 <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: 'secondary.light' }}>
                   Sarab Command Prompt
