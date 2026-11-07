@@ -10,3 +10,5 @@
 
 # Embedded GUI distribution assets
 gui/dist/** text eol=lf
+gui/dist/**/*.woff binary
+gui/dist/**/*.woff2 binary

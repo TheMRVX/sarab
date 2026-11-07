@@ -17,11 +17,14 @@ import PlayCircleOutlineIcon from '@mui/icons-material/PlayCircleOutline';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import LockIcon from '@mui/icons-material/Lock';
 import { LiveLocation, SystemStatus } from '../types';
+import { AuthConnectionState } from '../api/client';
 
 interface StatusBarProps {
   status: SystemStatus | null;
   liveFix: LiveLocation | null;
+  backendState: AuthConnectionState | 'connecting';
   onQueryFix: () => Promise<void>;
   isQuerying?: boolean;
 }
@@ -29,6 +32,7 @@ interface StatusBarProps {
 export const StatusBar: React.FC<StatusBarProps> = ({
   status,
   liveFix,
+  backendState,
   onQueryFix,
   isQuerying = false,
 }) => {
@@ -41,7 +45,45 @@ export const StatusBar: React.FC<StatusBarProps> = ({
     setCopied(true);
   };
 
-  const isHealthy = status?.driverRunning && status?.testSigning && status?.locationPrivacy;
+  const getSystemHealthBadge = () => {
+    if (backendState === 'connecting' || (backendState === 'authenticated' && status === null)) {
+      return {
+        label: 'System: Checking...',
+        color: 'default' as const,
+        icon: <CircularProgress size={12} color="inherit" />,
+        tooltip: 'Checking connection to Sarab backend...',
+      };
+    }
+    if (backendState === 'unauthenticated') {
+      return {
+        label: 'System: Auth Required',
+        color: 'default' as const,
+        icon: <LockIcon sx={{ fontSize: '14px !important' }} />,
+        tooltip: 'Authentication required to inspect system status',
+      };
+    }
+    if (backendState === 'unreachable') {
+      return {
+        label: 'Backend Offline',
+        color: 'error' as const,
+        icon: <WarningAmberIcon sx={{ fontSize: '14px !important' }} />,
+        tooltip: 'Cannot connect to Sarab backend service on 127.0.0.1:8090',
+      };
+    }
+    const isHealthy = Boolean(status?.driverRunning && status?.testSigning && status?.locationPrivacy);
+    return {
+      label: isHealthy ? 'Driver & OS Ready' : 'Check Requirements',
+      color: isHealthy ? ('success' as const) : ('warning' as const),
+      icon: isHealthy ? (
+        <CheckCircleOutlineIcon sx={{ fontSize: '14px !important' }} />
+      ) : (
+        <WarningAmberIcon sx={{ fontSize: '14px !important' }} />
+      ),
+      tooltip: status?.testSigningDetails || 'System integrity check',
+    };
+  };
+
+  const healthBadge = getSystemHealthBadge();
 
   return (
     <Paper
@@ -118,18 +160,12 @@ export const StatusBar: React.FC<StatusBarProps> = ({
       {/* Right: Driver Status & Test Trigger Button */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Tooltip title={status?.testSigningDetails || 'System integrity check'}>
+          <Tooltip title={healthBadge.tooltip}>
             <Chip
               size="small"
-              icon={
-                isHealthy ? (
-                  <CheckCircleOutlineIcon sx={{ fontSize: '14px !important' }} />
-                ) : (
-                  <WarningAmberIcon sx={{ fontSize: '14px !important' }} />
-                )
-              }
-              label={isHealthy ? 'Driver & OS Ready' : 'Check Requirements'}
-              color={isHealthy ? 'success' : 'warning'}
+              icon={healthBadge.icon}
+              label={healthBadge.label}
+              color={healthBadge.color}
               variant="filled"
               sx={{ height: 24, fontSize: '0.75rem', fontWeight: 600 }}
             />
@@ -144,7 +180,7 @@ export const StatusBar: React.FC<StatusBarProps> = ({
             isQuerying ? <CircularProgress size={14} color="inherit" /> : <PlayCircleOutlineIcon />
           }
           onClick={onQueryFix}
-          disabled={isQuerying}
+          disabled={isQuerying || backendState !== 'authenticated'}
           sx={{
             textTransform: 'none',
             fontSize: '0.8rem',

@@ -306,3 +306,31 @@ test('10. Client never requests obsolete /api/auth/session endpoint', async () =
     'Client must not call eliminated /api/auth/session endpoint'
   );
 });
+
+test('11. checkAuthConnection distinguishes authenticated, unauthenticated, and unreachable states', async () => {
+  // A. No token -> unauthenticated
+  client.clearAuth();
+  const stateNoToken = await client.checkAuthConnection();
+  assert.equal(stateNoToken, 'unauthenticated', 'Empty token must report unauthenticated');
+
+  // B. Valid token -> authenticated
+  client.setSessionToken('valid_test_token_123');
+  serverStatusCode = 200;
+  serverResponseBody = { authenticated: true };
+  const stateValid = await client.checkAuthConnection();
+  assert.equal(stateValid, 'authenticated', 'Valid token must report authenticated');
+
+  // C. Server 503 -> unreachable, preserves token
+  serverStatusCode = 503;
+  serverResponseBody = { error: 'Service Unavailable' };
+  const stateUnavailable = await client.checkAuthConnection();
+  assert.equal(stateUnavailable, 'unreachable', 'Server 503 must report unreachable');
+  assert.equal(client.getSessionToken(), 'valid_test_token_123', 'Transient 503 must not wipe token');
+
+  // D. Server 401 -> unauthenticated, purges token
+  serverStatusCode = 401;
+  serverResponseBody = { error: 'Unauthorized' };
+  const state401 = await client.checkAuthConnection();
+  assert.equal(state401, 'unauthenticated', 'Server 401 must report unauthenticated');
+  assert.equal(client.getSessionToken(), '', '401 must purge token');
+});
