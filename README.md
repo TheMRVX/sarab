@@ -59,32 +59,48 @@ These describe implemented code paths, **not a certification of behavior on ever
 
 ## Getting started
 
-1. Download the latest available archive or installer from [GitHub Releases](https://github.com/TheMRVX/sarab/releases). Check the specific release's notes, assets, and SHA256 checksums. **Do not assume every release contains the same artifacts.**
+1. Download the latest available archive or installer from [GitHub Releases](https://github.com/TheMRVX/sarab/releases). Check the specific release's notes, assets, and SHA256 checksums:
+   - **Windows Installer (`SarabSetup-vX.Y.Z.exe`)**: Elevated system-wide setup (`C:\Program Files\Sarab`). Includes the **Add Sarab to PATH** task (checked by default) and creates Start Menu shortcuts, including **Sarab Command Prompt**. After installation, **open a fresh terminal window** to inherit the updated system PATH.
+   - **Portable ZIP (`sarab-vX.Y.Z-x64.zip`)**: Standalone archive. Extract anywhere and execute directly from its directory (`.\sarab.exe`) without modifying system PATH or registering shortcuts.
 2. On an authorized Windows test machine, open an elevated terminal. For advanced mode, review [driver installation and Test Signing](docs/INSTALLATION.md) **before** changing firmware or boot configuration.
 3. With a driver installed and running, configure a test fix:
 
    ```powershell
+   # If Sarab was installed with PATH enabled (fresh terminal):
+   sarab set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
+   sarab enable
+   sarab status
+   sarab read
+
+   # Or when running from the executable directory (portable ZIP or PATH disabled):
    .\sarab.exe set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
    .\sarab.exe enable
    .\sarab.exe status
    .\sarab.exe read
+
+   # Or from any PowerShell location using the call operator (&) with full quoted path:
+   & "C:\Program Files\Sarab\sarab.exe" status
    ```
 
    For a no-driver fallback instead, run:
 
    ```powershell
-   .\sarab.exe simple --lat 35.6997 --lon 51.3380
+   sarab simple --lat 35.6997 --lon 51.3380
+   # Or: .\sarab.exe simple --lat 35.6997 --lon 51.3380
    ```
 
 4. To open the locally hosted dashboard:
 
    ```powershell
-   .\sarab.exe gui --open
+   sarab gui --open
+   # Or: .\sarab.exe gui --open
    ```
 
    The default binding is `127.0.0.1:8090`. Avoid binding the control API to a publicly accessible network interface.
 
-Use `sarab.exe --help` and `sarab.exe <command> --help` as the authoritative interface for the build you downloaded. See [the CLI and route guide](docs/USAGE.md) for commands and diagnostics.
+> **Tip:** If PowerShell reports `'sarab' is not recognized as the name of a cmdlet...` or CMD reports `'sarab' is not recognized as an internal or external command`, open a **fresh terminal** so the newly added system PATH takes effect. Alternatively, use the **Sarab Command Prompt** Start Menu shortcut, run `.\sarab.exe` directly from the installation folder, or use PowerShell's call operator (`& "C:\Program Files\Sarab\sarab.exe"`).
+
+Use `sarab --help` (or `.\sarab.exe --help`) as the authoritative interface for the build you downloaded. See [the CLI and route guide](docs/USAGE.md) and [installation notes](docs/INSTALLATION.md) for full commands, automation options, and diagnostics.
 
 ## Build from source
 
