@@ -55,8 +55,8 @@ fn collect_files_recursive(dir: &Path, base_dir: &Path, files: &mut BTreeSet<Str
 fn is_text_file(path: &str) -> bool {
     let lower = path.to_lowercase();
     let text_exts = [
-        ".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".html", ".css", ".scss", ".svg",
-        ".md", ".txt", ".toml", ".yaml", ".yml", ".env",
+        ".ts", ".tsx", ".js", ".mjs", ".cjs", ".json", ".html", ".css", ".scss", ".svg", ".md",
+        ".txt", ".toml", ".yaml", ".yml", ".env",
     ];
     text_exts.iter().any(|ext| lower.ends_with(ext)) || lower.contains(".env")
 }
@@ -303,7 +303,8 @@ fn validate_embedded_frontend() {
         }
     }
 
-    let expected_source_hash = compute_source_fingerprint(&gui_dir, &source_files, &recorded_mode, &vite_env);
+    let expected_source_hash =
+        compute_source_fingerprint(&gui_dir, &source_files, &recorded_mode, &vite_env);
     let (expected_dist_hash, actual_dist_assets) = compute_dist_fingerprint(&dist_dir);
 
     if !fingerprint_file.exists() {
