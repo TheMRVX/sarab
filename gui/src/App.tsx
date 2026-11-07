@@ -15,6 +15,7 @@ import {
   Button,
   TextField,
   CircularProgress,
+  Typography,
 } from '@mui/material';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
 import AltRouteIcon from '@mui/icons-material/AltRoute';
@@ -32,7 +33,7 @@ import { DriverSetupCard } from './components/DriverSetupCard';
 import { DriftControlCard } from './components/DriftControlCard';
 import { StatusBar } from './components/StatusBar';
 
-import { api, checkAuthStatus, verifyToken } from './api/client';
+import { api, checkAuthConnection, AuthConnectionState, verifyToken } from './api/client';
 import {
   SpoofConfig,
   SystemStatus,
@@ -83,7 +84,9 @@ export const App: React.FC = () => {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isQuerying, setIsQuerying] = useState<boolean>(false);
-  const [, setIsAuthenticated] = useState<boolean>(true);
+  const [backendState, setBackendState] = useState<AuthConnectionState | 'connecting'>('connecting');
+  const [isConfigLoaded, setIsConfigLoaded] = useState<boolean>(false);
+  const [, setIsAuthenticated] = useState<boolean>(false);
   const [authDialogOpen, setAuthDialogOpen] = useState<boolean>(false);
   const [tokenInput, setTokenInput] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
@@ -109,33 +112,55 @@ export const App: React.FC = () => {
     setNotification((prev) => ({ ...prev, open: false }));
   };
 
-  // Initial load
+  // Initial load and refresh
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const authed = await checkAuthStatus();
-      if (!authed) {
+      const authState = await checkAuthConnection();
+      setBackendState(authState);
+
+      if (authState === 'unreachable') {
         setIsAuthenticated(false);
-        setAuthDialogOpen(true);
-        setIsLoading(false);
+        setSystemStatus(null);
+        setLiveFix(null);
+        setSatellites([]);
+        setIsConfigLoaded(false);
+        showNotification('Unable to connect to Sarab backend service at 127.0.0.1:8090', 'error');
         return;
       }
+
+      if (authState === 'unauthenticated') {
+        setIsAuthenticated(false);
+        setSystemStatus(null);
+        setLiveFix(null);
+        setSatellites([]);
+        setIsConfigLoaded(false);
+        setAuthDialogOpen(true);
+        return;
+      }
+
+      // authState === 'authenticated'
       setIsAuthenticated(true);
       setAuthDialogOpen(false);
 
       const [cfg, status, fix, sats] = await Promise.all([
         api.getSpoofConfig().catch(() => null),
-        api.getSystemStatus(),
-        api.queryLiveLocation(),
-        api.getSatellites(),
+        api.getSystemStatus().catch(() => null),
+        api.queryLiveLocation().catch(() => null),
+        api.getSatellites().catch(() => []),
       ]);
-      if (cfg) setConfig(cfg);
+
+      if (cfg) {
+        setConfig(cfg);
+        setIsConfigLoaded(true);
+      }
       setSystemStatus(status);
       setLiveFix(fix);
       setSatellites(sats);
     } catch (e) {
       console.error('Failed to load initial data:', e);
-      showNotification('Failed to connect to Sarab backend service', 'warning');
+      setBackendState('unreachable');
+      showNotification('Failed to communicate with Sarab backend service', 'warning');
     } finally {
       setIsLoading(false);
     }
@@ -153,15 +178,16 @@ export const App: React.FC = () => {
       const ok = await verifyToken(tokenInput.trim());
       if (ok) {
         setIsAuthenticated(true);
+        setBackendState('authenticated');
         setAuthDialogOpen(false);
         setTokenInput('');
         showNotification('Dashboard unlocked successfully', 'success');
         await loadData();
       } else {
-        setAuthError('Invalid session token. Run `sarab token` in terminal to view the active token.');
+        setAuthError('Invalid or expired session token. Run `sarab token` in terminal to view the active token.');
       }
     } catch {
-      setAuthError('Connection error while verifying token.');
+      setAuthError('Connection error while verifying token. Verify Sarab backend is running.');
     } finally {
       setIsVerifying(false);
     }
@@ -173,6 +199,10 @@ export const App: React.FC = () => {
 
   // Handle map coordinate clicks
   const handleMapCoordinateChange = (lat: number, lon: number) => {
+    if (backendState !== 'authenticated') {
+      showNotification('Unlock dashboard with session token before updating coordinates', 'warning');
+      return;
+    }
     setConfig((prev) => ({
       ...prev,
       latitude: lat,
@@ -310,6 +340,9 @@ export const App: React.FC = () => {
         spoofEnabled={config.enabled}
         onToggleSpoof={handleToggleSpoof}
         status={systemStatus}
+        backendState={backendState}
+        isConfigLoaded={isConfigLoaded}
+        isLoading={isLoading}
         onRefresh={loadData}
       />
 
@@ -378,6 +411,7 @@ export const App: React.FC = () => {
                 config={config}
                 onApply={handleApplyConfig}
                 isLoading={isLoading}
+                disabled={backendState !== 'authenticated' || !isConfigLoaded}
               />
               <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.06)' }} />
               <DriftControlCard
@@ -385,11 +419,13 @@ export const App: React.FC = () => {
                 driftRadius={config.driftRadius ?? 1.2}
                 onToggleDrift={handleToggleDrift}
                 onChangeRadius={handleChangeDriftRadius}
+                disabled={backendState !== 'authenticated' || !isConfigLoaded}
               />
               <Divider sx={{ my: 1, borderColor: 'rgba(255, 255, 255, 0.06)' }} />
               <PresetsSelector
                 currentConfig={config}
                 onSelectPreset={handleSelectPreset}
+                disabled={backendState !== 'authenticated' || !isConfigLoaded}
               />
             </TabPanel>
 
@@ -398,6 +434,7 @@ export const App: React.FC = () => {
                 currentConfig={config}
                 onUpdateCoordinates={handleRouteUpdateCoordinates}
                 onWaypointsChange={setWaypoints}
+                disabled={backendState !== 'authenticated' || !isConfigLoaded}
               />
             </TabPanel>
 
@@ -408,6 +445,7 @@ export const App: React.FC = () => {
             <TabPanel value={tabIndex} index={3}>
               <DriverSetupCard
                 status={systemStatus}
+                backendState={backendState}
                 onRefresh={loadData}
                 isLoading={isLoading}
               />
@@ -438,6 +476,7 @@ export const App: React.FC = () => {
       <StatusBar
         status={systemStatus}
         liveFix={liveFix}
+        backendState={backendState}
         onQueryFix={handleQueryFix}
         isQuerying={isQuerying}
       />
@@ -468,7 +507,7 @@ export const App: React.FC = () => {
             bgcolor: 'background.paper',
             borderRadius: 3,
             p: 1,
-            minWidth: { xs: '90%', sm: 460 },
+            minWidth: { xs: '90%', sm: 500 },
           },
         }}
       >
@@ -481,20 +520,63 @@ export const App: React.FC = () => {
             <DialogContentText sx={{ mb: 2, color: 'text.secondary' }}>
               Access to Sarab GNSS controls is protected. Enter the active session token to unlock this dashboard.
             </DialogContentText>
+
             <Box
               sx={{
                 bgcolor: 'action.hover',
                 p: 1.5,
                 borderRadius: 1.5,
-                mb: 2.5,
-                fontFamily: 'monospace',
-                fontSize: '0.85rem',
+                mb: 2,
                 border: '1px solid',
                 borderColor: 'divider',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
               }}
             >
-              $ sarab token
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
+                  From terminal when added to PATH (Default):
+                </Typography>
+                <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
+                  sarab token
+                </Typography>
+              </Box>
+
+              <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
+
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
+                  From portable / installation folder (PowerShell):
+                </Typography>
+                <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
+                  .\sarab.exe token
+                </Typography>
+              </Box>
+
+              <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
+
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
+                  From arbitrary path (PowerShell call operator):
+                </Typography>
+                <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
+                  &amp; &quot;&lt;path-to-sarab&gt;\sarab.exe&quot; token
+                </Typography>
+              </Box>
+
+              <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
+
+              <Box>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.2 }}>
+                  Or use the Start Menu shortcut:
+                </Typography>
+                <Typography sx={{ fontSize: '0.82rem', fontWeight: 600, color: 'secondary.light' }}>
+                  Sarab Command Prompt
+                </Typography>
+              </Box>
             </Box>
+
             {authError && (
               <Alert severity="error" sx={{ mb: 2 }}>
                 {authError}
@@ -511,11 +593,19 @@ export const App: React.FC = () => {
                 setTokenInput(e.target.value);
                 if (authError) setAuthError('');
               }}
-              placeholder="Enter active session token..."
+              placeholder="Paste active session token..."
               disabled={isVerifying}
             />
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
+          <DialogActions sx={{ px: 3, pb: 2, display: 'flex', justifyContent: 'space-between' }}>
+            <Button
+              variant="outlined"
+              color="inherit"
+              onClick={loadData}
+              disabled={isVerifying || isLoading}
+            >
+              Retry Connection
+            </Button>
             <Button
               type="submit"
               variant="contained"

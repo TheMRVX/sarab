@@ -32,11 +32,13 @@ const BUILTIN_PRESETS: PresetLocation[] = [
 interface PresetsSelectorProps {
   currentConfig: SpoofConfig;
   onSelectPreset: (preset: PresetLocation) => void;
+  disabled?: boolean;
 }
 
 export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
   currentConfig,
   onSelectPreset,
+  disabled = false,
 }) => {
   const [customPresets, setCustomPresets] = useState<PresetLocation[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -112,6 +114,7 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
           size="small"
           startIcon={<BookmarkAddIcon />}
           onClick={() => setDialogOpen(true)}
+          disabled={disabled}
           sx={{ fontSize: '0.75rem', py: 0.2 }}
         >
           Bookmark Pin
@@ -130,12 +133,13 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
               key={preset.id}
               icon={<PlaceIcon fontSize="small" />}
               label={`${preset.name} (${preset.city})`}
-              onClick={() => onSelectPreset(preset)}
+              onClick={disabled ? undefined : () => onSelectPreset(preset)}
+              disabled={disabled}
               color={isSelected ? 'primary' : 'default'}
               variant={isSelected ? 'filled' : 'outlined'}
               size="small"
               sx={{
-                cursor: 'pointer',
+                cursor: disabled ? 'default' : 'pointer',
                 borderColor: isSelected ? 'primary.main' : 'rgba(255,255,255,0.15)',
               }}
             />
@@ -148,8 +152,9 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
             key={preset.id}
             icon={<PlaceIcon fontSize="small" />}
             label={preset.name}
-            onClick={() => onSelectPreset(preset)}
-            onDelete={(e) => handleDeleteCustom(preset.id, e)}
+            onClick={disabled ? undefined : () => onSelectPreset(preset)}
+            onDelete={disabled ? undefined : (e) => handleDeleteCustom(preset.id, e)}
+            disabled={disabled}
             deleteIcon={
               <Tooltip title="Delete bookmark">
                 <DeleteOutlineIcon fontSize="small" />
@@ -158,7 +163,7 @@ export const PresetsSelector: React.FC<PresetsSelectorProps> = ({
             color="secondary"
             variant="outlined"
             size="small"
-            sx={{ cursor: 'pointer' }}
+            sx={{ cursor: disabled ? 'default' : 'pointer' }}
           />
         ))}
       </Box>

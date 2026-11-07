@@ -20,12 +20,14 @@ interface CoordinateFormProps {
   config: SpoofConfig;
   onApply: (newConfig: SpoofConfig) => void;
   isLoading?: boolean;
+  disabled?: boolean;
 }
 
 export const CoordinateForm: React.FC<CoordinateFormProps> = ({
   config,
   onApply,
   isLoading = false,
+  disabled = false,
 }) => {
   const [lat, setLat] = useState<string>(config.latitude.toString());
   const [lon, setLon] = useState<string>(config.longitude.toString());
@@ -91,6 +93,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
             label="Latitude"
             size="small"
             value={lat}
+            disabled={disabled || isLoading}
             onChange={(e) => setLat(e.target.value)}
             InputProps={{
               startAdornment: (
@@ -110,6 +113,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
             label="Longitude"
             size="small"
             value={lon}
+            disabled={disabled || isLoading}
             onChange={(e) => setLon(e.target.value)}
             InputProps={{
               startAdornment: (
@@ -129,6 +133,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
             label="Altitude"
             size="small"
             value={alt}
+            disabled={disabled || isLoading}
             onChange={(e) => setAlt(e.target.value)}
             InputProps={{
               startAdornment: (
@@ -148,6 +153,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
             label="Horizontal Accuracy"
             size="small"
             value={acc}
+            disabled={disabled || isLoading}
             onChange={(e) => {
               const val = parseFloat(e.target.value);
               if (!isNaN(val) && val > 0) setAcc(val);
@@ -175,6 +181,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
           min={1}
           max={50}
           step={0.5}
+          disabled={disabled || isLoading}
           onChange={(_, val) => setAcc(val as number)}
           marks={[
             { value: 1, label: '1m' },
@@ -195,7 +202,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
           variant="contained"
           fullWidth
           size="medium"
-          disabled={isLoading}
+          disabled={disabled || isLoading}
           startIcon={<SendIcon />}
           sx={{
             py: 1,
@@ -205,7 +212,7 @@ export const CoordinateForm: React.FC<CoordinateFormProps> = ({
             '&:hover': { bgcolor: 'primary.light' },
           }}
         >
-          Apply to Windows Location
+          {disabled ? 'Unlock Dashboard to Apply' : 'Apply to Windows Location'}
         </Button>
       </Box>
     </Box>

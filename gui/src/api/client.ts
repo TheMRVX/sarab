@@ -93,12 +93,14 @@ export function clearAuth(): void {
   }
 }
 
-export async function checkAuthStatus(): Promise<boolean> {
-  if (isDemoMode()) return true;
+export type AuthConnectionState = 'authenticated' | 'unauthenticated' | 'unreachable';
+
+export async function checkAuthConnection(): Promise<AuthConnectionState> {
+  if (isDemoMode()) return 'authenticated';
 
   const token = getSessionToken();
   if (!token) {
-    return false;
+    return 'unauthenticated';
   }
 
   // Verify stored/in-memory token against /api/auth/status via X-Sarab-Token header
@@ -107,13 +109,23 @@ export async function checkAuthStatus(): Promise<boolean> {
     if (res.ok) {
       const data = await res.json();
       if (data && data.authenticated) {
-        return true;
+        return 'authenticated';
       }
+      clearAuth();
+      return 'unauthenticated';
+    } else if (res.status === 401) {
+      clearAuth();
+      return 'unauthenticated';
+    } else {
+      return 'unreachable';
     }
-  } catch {}
+  } catch {
+    return 'unreachable';
+  }
+}
 
-  clearAuth();
-  return false;
+export async function checkAuthStatus(): Promise<boolean> {
+  return (await checkAuthConnection()) === 'authenticated';
 }
 
 export async function verifyToken(token: string): Promise<boolean> {

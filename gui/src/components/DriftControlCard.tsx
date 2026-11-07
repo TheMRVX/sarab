@@ -20,6 +20,7 @@ interface DriftControlCardProps {
   driftRadius: number;
   onToggleDrift: (enabled: boolean) => void;
   onChangeRadius: (radius: number) => void;
+  disabled?: boolean;
 }
 
 export const DriftControlCard: React.FC<DriftControlCardProps> = ({
@@ -27,6 +28,7 @@ export const DriftControlCard: React.FC<DriftControlCardProps> = ({
   driftRadius,
   onToggleDrift,
   onChangeRadius,
+  disabled = false,
 }) => {
   // 2D wander point trail for scatter radar
   const [points, setPoints] = useState<DriftPoint[]>([]);
@@ -117,8 +119,9 @@ export const DriftControlCard: React.FC<DriftControlCardProps> = ({
         <FormControlLabel
           control={
             <Switch
-              checked={driftEnabled}
+              checked={driftEnabled && !disabled}
               onChange={(e) => onToggleDrift(e.target.checked)}
+              disabled={disabled}
               color="primary"
               size="small"
             />
@@ -137,7 +140,7 @@ export const DriftControlCard: React.FC<DriftControlCardProps> = ({
           size="small"
           variant="outlined"
           fullWidth
-          disabled={!driftEnabled}
+          disabled={disabled || !driftEnabled}
           sx={{
             '& .MuiButton-root': {
               fontSize: '0.75rem',
@@ -147,19 +150,19 @@ export const DriftControlCard: React.FC<DriftControlCardProps> = ({
           }}
         >
           <Button
-            variant={driftEnabled && Math.abs(driftRadius - 0.4) < 0.1 ? 'contained' : 'outlined'}
+            variant={driftEnabled && !disabled && Math.abs(driftRadius - 0.4) < 0.1 ? 'contained' : 'outlined'}
             onClick={() => onChangeRadius(0.4)}
           >
             Subtle (±0.4m)
           </Button>
           <Button
-            variant={driftEnabled && Math.abs(driftRadius - 1.2) < 0.1 ? 'contained' : 'outlined'}
+            variant={driftEnabled && !disabled && Math.abs(driftRadius - 1.2) < 0.1 ? 'contained' : 'outlined'}
             onClick={() => onChangeRadius(1.2)}
           >
             Standard (±1.2m)
           </Button>
           <Button
-            variant={driftEnabled && Math.abs(driftRadius - 2.5) < 0.1 ? 'contained' : 'outlined'}
+            variant={driftEnabled && !disabled && Math.abs(driftRadius - 2.5) < 0.1 ? 'contained' : 'outlined'}
             onClick={() => onChangeRadius(2.5)}
           >
             Urban (±2.5m)
@@ -183,7 +186,7 @@ export const DriftControlCard: React.FC<DriftControlCardProps> = ({
           min={0.1}
           max={5.0}
           step={0.1}
-          disabled={!driftEnabled}
+          disabled={disabled || !driftEnabled}
           onChange={(_, val) => onChangeRadius(val as number)}
           sx={{ color: 'primary.main' }}
         />

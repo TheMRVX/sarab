@@ -20,19 +20,24 @@ import MemoryIcon from '@mui/icons-material/Memory';
 import LockOpenIcon from '@mui/icons-material/LockOpen';
 import PrivacyTipIcon from '@mui/icons-material/PrivacyTip';
 import BuildIcon from '@mui/icons-material/Build';
+import HelpOutlineIcon from '@mui/icons-material/HelpOutline';
+import CircularProgress from '@mui/material/CircularProgress';
 import { SecurityShield } from './SecurityShield';
 import { ServiceManagerCard } from './ServiceManagerCard';
 import { EnvironmentalEffects } from './EnvironmentalEffects';
 import { SystemStatus } from '../types';
+import { AuthConnectionState } from '../api/client';
 
 interface DriverSetupCardProps {
   status: SystemStatus | null;
+  backendState?: AuthConnectionState | 'connecting';
   onRefresh: () => void;
   isLoading?: boolean;
 }
 
 export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
   status,
+  backendState = 'authenticated',
   onRefresh,
   isLoading = false,
 }) => {
@@ -44,29 +49,67 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
     setTimeout(() => setCopyCodeSuccess(null), 2000);
   };
 
+  const isPending = status === null;
+
   const statusItems = [
     {
       title: 'UMDF 2.0 Driver State',
-      desc: status?.driverRunning ? 'Virtual GNSS sensor active in Device Manager' : 'Driver not running or device disabled',
-      ok: status?.driverRunning ?? false,
+      desc: isPending
+        ? (backendState === 'unauthenticated'
+            ? 'Authentication required to inspect driver state'
+            : backendState === 'unreachable'
+            ? 'Status unavailable (backend offline)'
+            : 'Checking UMDF 2.0 driver status...')
+        : (status.driverRunning
+            ? 'Virtual GNSS sensor active in Device Manager'
+            : 'Driver not running or device disabled'),
+      ok: Boolean(status?.driverRunning),
+      isPending,
       icon: <MemoryIcon />,
     },
     {
       title: 'Windows Test Signing',
-      desc: status?.testSigningDetails || (status?.testSigning ? 'Enabled (test root CA trusted)' : 'Disabled - required for self-signed driver'),
-      ok: status?.testSigning ?? false,
+      desc: isPending
+        ? (backendState === 'unauthenticated'
+            ? 'Authentication required'
+            : backendState === 'unreachable'
+            ? 'Status unavailable'
+            : 'Checking Windows Test Signing...')
+        : (status.testSigningDetails ||
+            (status.testSigning
+              ? 'Enabled (test root CA trusted)'
+              : 'Disabled - required for self-signed driver')),
+      ok: Boolean(status?.testSigning),
+      isPending,
       icon: <BuildIcon />,
     },
     {
       title: 'Windows Location Privacy',
-      desc: status?.locationPrivacyDetails || (status?.locationPrivacy ? 'Allowed (Desktop & Store apps)' : 'Blocked in Windows Settings'),
-      ok: status?.locationPrivacy ?? false,
+      desc: isPending
+        ? (backendState === 'unauthenticated'
+            ? 'Authentication required'
+            : backendState === 'unreachable'
+            ? 'Status unavailable'
+            : 'Checking Windows Location Privacy...')
+        : (status.locationPrivacyDetails ||
+            (status.locationPrivacy
+              ? 'Allowed (Desktop & Store apps)'
+              : 'Blocked in Windows Settings')),
+      ok: Boolean(status?.locationPrivacy),
+      isPending,
       icon: <PrivacyTipIcon />,
     },
     {
       title: 'BitLocker Protection',
-      desc: status?.bitlocker || 'Protection suspended or BitLocker disabled',
+      desc: isPending
+        ? (backendState === 'unauthenticated'
+            ? 'Authentication required'
+            : backendState === 'unreachable'
+            ? 'Status unavailable'
+            : 'Checking BitLocker status...')
+        : (status.bitlocker || 'Protection suspended or BitLocker disabled'),
       ok: true,
+      isPending,
       icon: <LockOpenIcon />,
     },
   ];
@@ -97,42 +140,79 @@ export const DriverSetupCard: React.FC<DriverSetupCardProps> = ({
 
       {/* Status Grid */}
       <Grid container spacing={1.5}>
-        {statusItems.map((item, index) => (
-          <Grid item xs={12} sm={6} key={index}>
-            <Paper
-              variant="outlined"
-              sx={{
-                p: 1.5,
-                bgcolor: 'background.paper',
-                borderColor: item.ok ? 'rgba(0, 230, 118, 0.25)' : 'rgba(255, 82, 82, 0.25)',
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: 1.5,
-              }}
-            >
-              <Box sx={{ color: item.ok ? 'success.main' : 'error.main', mt: 0.2 }}>
-                {item.icon}
-              </Box>
-              <Box sx={{ flex: 1, minWidth: 0 }}>
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
-                    {item.title}
-                  </Typography>
-                  <Chip
-                    size="small"
-                    icon={item.ok ? <CheckCircleIcon sx={{ fontSize: '13px !important' }} /> : <ErrorIcon sx={{ fontSize: '13px !important' }} />}
-                    label={item.ok ? 'OK' : 'ATTENTION'}
-                    color={item.ok ? 'success' : 'error'}
-                    sx={{ height: 20, fontSize: '0.7rem', fontWeight: 700 }}
-                  />
+        {statusItems.map((item, index) => {
+          const borderColor = item.isPending
+            ? 'rgba(255, 255, 255, 0.1)'
+            : item.ok
+            ? 'rgba(0, 230, 118, 0.25)'
+            : 'rgba(255, 82, 82, 0.25)';
+
+          const iconColor = item.isPending
+            ? 'text.secondary'
+            : item.ok
+            ? 'success.main'
+            : 'error.main';
+
+          const chipLabel = item.isPending
+            ? (backendState === 'unauthenticated'
+                ? 'AUTH REQUIRED'
+                : backendState === 'unreachable'
+                ? 'UNAVAILABLE'
+                : 'PENDING')
+            : (item.ok ? 'OK' : 'ATTENTION');
+
+          const chipColor = item.isPending ? 'default' : (item.ok ? 'success' : 'error');
+
+          const chipIcon = item.isPending ? (
+            backendState === 'connecting' || isLoading ? (
+              <CircularProgress size={11} color="inherit" />
+            ) : (
+              <HelpOutlineIcon sx={{ fontSize: '13px !important' }} />
+            )
+          ) : item.ok ? (
+            <CheckCircleIcon sx={{ fontSize: '13px !important' }} />
+          ) : (
+            <ErrorIcon sx={{ fontSize: '13px !important' }} />
+          );
+
+          return (
+            <Grid item xs={12} sm={6} key={index}>
+              <Paper
+                variant="outlined"
+                sx={{
+                  p: 1.5,
+                  bgcolor: 'background.paper',
+                  borderColor,
+                  display: 'flex',
+                  alignItems: 'flex-start',
+                  gap: 1.5,
+                }}
+              >
+                <Box sx={{ color: iconColor, mt: 0.2 }}>
+                  {item.icon}
                 </Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', wordBreak: 'break-word' }}>
-                  {item.desc}
-                </Typography>
-              </Box>
-            </Paper>
-          </Grid>
-        ))}
+                <Box sx={{ flex: 1, minWidth: 0 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 600 }}>
+                      {item.title}
+                    </Typography>
+                    <Chip
+                      size="small"
+                      icon={chipIcon}
+                      label={chipLabel}
+                      color={chipColor}
+                      variant={item.isPending ? 'outlined' : 'filled'}
+                      sx={{ height: 20, fontSize: '0.7rem', fontWeight: 700 }}
+                    />
+                  </Box>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', wordBreak: 'break-word' }}>
+                    {item.desc}
+                  </Typography>
+                </Box>
+              </Paper>
+            </Grid>
+          );
+        })}
       </Grid>
 
       {/* Windows Location Authority & Anti-Rubberband Shield */}

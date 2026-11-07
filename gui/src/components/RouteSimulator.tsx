@@ -37,6 +37,7 @@ interface RouteSimulatorProps {
   currentConfig: SpoofConfig;
   onUpdateCoordinates: (lat: number, lon: number) => void;
   onWaypointsChange: (waypoints: Waypoint[]) => void;
+  disabled?: boolean;
 }
 
 // Subcomponent: Live Heading & Velocity Telemetry Gauge
@@ -88,18 +89,19 @@ const WaypointsQueue: React.FC<{
   onAdd: () => void;
   onRemove: (id: string) => void;
   onClear: () => void;
-}> = ({ waypoints, onAdd, onRemove, onClear }) => (
+  disabled?: boolean;
+}> = ({ waypoints, onAdd, onRemove, onClear, disabled = false }) => (
   <Paper variant="outlined" sx={{ p: 1.5, maxHeight: 180, overflowY: 'auto' }}>
     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
       <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
         Waypoints Queue ({waypoints.length})
       </Typography>
       <Box sx={{ display: 'flex', gap: 1 }}>
-        <Button size="small" startIcon={<AddLocationIcon />} onClick={onAdd}>
+        <Button size="small" startIcon={<AddLocationIcon />} onClick={onAdd} disabled={disabled}>
           Add Current
         </Button>
         {waypoints.length > 0 && (
-          <Button size="small" color="error" onClick={onClear}>
+          <Button size="small" color="error" onClick={onClear} disabled={disabled}>
             Clear
           </Button>
         )}
@@ -116,7 +118,7 @@ const WaypointsQueue: React.FC<{
           <ListItem
             key={wp.id}
             secondaryAction={
-              <IconButton edge="end" size="small" onClick={() => onRemove(wp.id)}>
+              <IconButton edge="end" size="small" onClick={() => onRemove(wp.id)} disabled={disabled}>
                 <DeleteIcon fontSize="small" />
               </IconButton>
             }
@@ -144,6 +146,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
   currentConfig,
   onUpdateCoordinates,
   onWaypointsChange,
+  disabled = false,
 }) => {
   const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
   const [profile, setProfile] = useState<RouteProfile>('driving');
@@ -163,6 +166,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
   // Road snapping is opt-in at the local server level; no endpoint is used by default.
   useEffect(() => {
+    if (disabled) return;
     let active = true;
     apiFetch('/api/route/osrm/status')
       .then(async (res) => {
@@ -179,10 +183,11 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
     return () => {
       active = false;
     };
-  }, []);
+  }, [disabled]);
 
   // Poll server-side route status every 1000ms to stay synchronized headlessly
   useEffect(() => {
+    if (disabled) return;
     const checkServerStatus = async () => {
       try {
         const res = await apiFetch('/api/route/status');
@@ -208,7 +213,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
 
     const interval = setInterval(checkServerStatus, 1000);
     return () => clearInterval(interval);
-  }, [onUpdateCoordinates]);
+  }, [disabled, onUpdateCoordinates]);
 
   const handleProfileChange = (newProfile: RouteProfile) => {
     setProfile(newProfile);
@@ -433,11 +438,12 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
       <TelemetryGauge heading={currentHeading} speedKmh={activeSpeed} />
 
       {/* Profile Selector Buttons */}
-      <ButtonGroup fullWidth size="small" variant="outlined">
+      <ButtonGroup fullWidth size="small" variant="outlined" disabled={disabled}>
         <Button
           onClick={() => handleProfileChange('walking')}
           variant={profile === 'walking' ? 'contained' : 'outlined'}
           startIcon={<DirectionsWalkIcon />}
+          disabled={disabled}
         >
           Walk (5km/h)
         </Button>
@@ -445,6 +451,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           onClick={() => handleProfileChange('cycling')}
           variant={profile === 'cycling' ? 'contained' : 'outlined'}
           startIcon={<DirectionsBikeIcon />}
+          disabled={disabled}
         >
           Bike (20km/h)
         </Button>
@@ -452,6 +459,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           onClick={() => handleProfileChange('driving')}
           variant={profile === 'driving' ? 'contained' : 'outlined'}
           startIcon={<DirectionsCarIcon />}
+          disabled={disabled}
         >
           Car (60km/h)
         </Button>
@@ -472,6 +480,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           value={speedKmh}
           min={1}
           max={150}
+          disabled={disabled}
           onChange={(_, val) => setSpeedKmh(val as number)}
           sx={{ color: 'primary.main' }}
         />
@@ -486,7 +495,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
             color="primary"
             startIcon={<AltRouteIcon />}
             onClick={handleSnapToRoads}
-            disabled={waypoints.length < 2 || isSnapping || !osrmStatusLoaded || !osrmEnabled}
+            disabled={disabled || waypoints.length < 2 || isSnapping || !osrmStatusLoaded || !osrmEnabled}
             sx={{ flex: 1 }}
           >
             {isSnapping ? 'Snapping...' : 'Snap to Roads'}
@@ -500,6 +509,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
             color="secondary"
             startIcon={<UploadFileIcon />}
             onClick={() => fileInputRef.current?.click()}
+            disabled={disabled}
             sx={{ flex: 1 }}
           >
             Import GPX
@@ -540,7 +550,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           color="success"
           startIcon={isPlaying && !isPaused ? <PauseIcon /> : <PlayArrowIcon />}
           onClick={handleStartSimulation}
-          disabled={waypoints.length < 2}
+          disabled={disabled || waypoints.length < 2}
           sx={{ flex: 1, fontWeight: 700 }}
         >
           {isPlaying ? (isPaused ? 'Resume' : 'Pause') : 'Start Simulation'}
@@ -551,7 +561,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
           color="error"
           startIcon={<StopIcon />}
           onClick={handleStopSimulation}
-          disabled={!isPlaying && progress === 0}
+          disabled={disabled || (!isPlaying && progress === 0)}
         >
           Stop
         </Button>
@@ -562,6 +572,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
               size="small"
               checked={isLooping}
               onChange={(e) => setIsLooping(e.target.checked)}
+              disabled={disabled}
               color="primary"
             />
           }
@@ -581,6 +592,7 @@ export const RouteSimulator: React.FC<RouteSimulatorProps> = ({
         onAdd={handleAddWaypoint}
         onRemove={handleRemoveWaypoint}
         onClear={handleClearWaypoints}
+        disabled={disabled}
       />
     </Box>
   );
