@@ -451,6 +451,11 @@ def test_release_integrity_and_dry_run_safeguards():
     for legal in ["LICENSE-MIT", "LICENSE-APACHE", "LICENSE-CHOICE.txt", "NOTICE", "THIRD-PARTY-NOTICES.md", "LICENSING.md"]:
         assert f'"{legal}"' in release_yml, f"release.yml missing legal file check for {legal}"
 
+    # Verify Inno Setup installer PATH task, declarations, and lifecycle logic
+    res_installer = run([sys.executable, str(SCRIPTS_DIR / "test_installer_path.py")], cwd=REPO_ROOT)
+    assert res_installer.returncode == 0, f"Installer PATH regression tests failed:\n{res_installer.stdout}\n{res_installer.stderr}"
+    print("  [+] Inno Setup PATH integration, ownership tracking, and safety invariants verified.")
+
     print("  [+] Release workflow invariants and dry-run safeguards verified.")
 
 
