@@ -8,6 +8,7 @@ import {
   IconButton,
   CircularProgress,
   Typography,
+  Alert,
 } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import MyLocationIcon from '@mui/icons-material/MyLocation';
@@ -69,6 +70,7 @@ export const MapView: React.FC<MapViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
+  const [tileError, setTileError] = useState(false);
 
   const mapContainerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -92,13 +94,29 @@ export const MapView: React.FC<MapViewProps> = ({
     });
     mapRef.current = map;
 
-    // OSM standard tiles: keep attribution visible and follow the OSM tile usage policy.
-    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    // OSM standard tiles: keep attribution visible, apply origin referrer policy to satisfy tile policy,
+    // and preserve standard caching while monitoring tile availability.
+    const tileLayer = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution:
-        '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors | <a href="https://www.openstreetmap.org/edit">Improve this map</a>',
+        '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors | <a href="https://www.openstreetmap.org/edit" target="_blank" rel="noreferrer">Improve this map</a>',
       maxZoom: 19,
       className: 'dark-tile-layer',
+      referrerPolicy: 'origin',
     }).addTo(map);
+
+    let failedTileCount = 0;
+    tileLayer.on('tileerror', () => {
+      failedTileCount++;
+      if (failedTileCount >= 2) {
+        setTileError(true);
+      }
+    });
+
+    tileLayer.on('load', () => {
+      if (failedTileCount < 2) {
+        setTileError(false);
+      }
+    });
 
     // Accuracy Circle
     const circle = L.circle([latitude, longitude], {
@@ -320,6 +338,40 @@ export const MapView: React.FC<MapViewProps> = ({
           </IconButton>
         </Paper>
       </Box>
+
+      {/* Tile unavailable advisory banner */}
+      {tileError && (
+        <Box
+          sx={{
+            position: 'absolute',
+            bottom: 24,
+            left: 24,
+            zIndex: 1000,
+            maxWidth: { xs: 'calc(100% - 90px)', sm: 380 },
+            pointerEvents: 'none',
+          }}
+        >
+          <Alert
+            severity="warning"
+            variant="filled"
+            sx={{
+              py: 0.5,
+              px: 1.5,
+              fontSize: '0.78rem',
+              boxShadow: 3,
+              bgcolor: 'rgba(33, 33, 33, 0.95)',
+              color: '#ffb74d',
+              border: '1px solid rgba(255, 183, 77, 0.4)',
+              pointerEvents: 'auto',
+              '& .MuiAlert-icon': {
+                color: '#ffb74d',
+              },
+            }}
+          >
+            Map imagery unavailable (OpenStreetMap policy or network offline). Interactive coordinates and virtual GNSS spoofing continue to work normally.
+          </Alert>
+        </Box>
+      )}
 
       {/* Main Map Container Div */}
       <Box
