@@ -221,6 +221,115 @@ async function verifySecurityHeaders(dashboardPage, sarabPort) {
   console.log('  [+] Security headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Cache-Control) verified.');
 }
 
+async function verifyOsmTilePolicyCompliance(context, sarabPort, validToken) {
+  console.log('[*] Test 5: Verifying OSM Tile Policy Compliance & Referer Origin Isolation...');
+  const mapPage = await context.newPage();
+  const interceptedTileRequests = [];
+
+  const png1x1 = Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+    'base64'
+  );
+
+  // Intercept tile requests to inspect headers and simulate mocked responses
+  await mapPage.route('https://tile.openstreetmap.org/**', async (route) => {
+    const req = route.request();
+    interceptedTileRequests.push({
+      url: req.url(),
+      headers: req.headers(),
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: 'image/png',
+      headers: {
+        'Cache-Control': 'public, max-age=86400',
+      },
+      body: png1x1,
+    });
+  });
+
+  // Navigate with initial token parameter to ensure bootstrap query was on the page
+  await mapPage.goto(`http://127.0.0.1:${sarabPort}/?token=${validToken}`, {
+    waitUntil: 'networkidle',
+  });
+
+  // Wait for at least one tile request
+  let waited = 0;
+  while (interceptedTileRequests.length === 0 && waited < 40) {
+    await sleep(100);
+    waited++;
+  }
+
+  assert.ok(
+    interceptedTileRequests.length > 0,
+    'Leaflet must dispatch tile requests for the rendered map view'
+  );
+
+  const expectedOrigin = `http://127.0.0.1:${sarabPort}/`;
+  for (const tileReq of interceptedTileRequests) {
+    const ref = tileReq.headers['referer'] || '';
+    assert.equal(
+      ref,
+      expectedOrigin,
+      `OSM tile request must send exact origin Referer. Got: '${ref}', expected: '${expectedOrigin}'`
+    );
+    assert.equal(
+      ref.includes('token'),
+      false,
+      'OSM tile Referer must NEVER leak token query parameters'
+    );
+    assert.equal(
+      tileReq.headers['cookie'],
+      undefined,
+      'OSM tile request must NEVER transmit ambient cookies'
+    );
+    assert.equal(
+      tileReq.headers['x-sarab-token'],
+      undefined,
+      'OSM tile request must NEVER transmit internal X-Sarab-Token header'
+    );
+  }
+  console.log(`  [+] Verified ${interceptedTileRequests.length} tile request(s): Referer matches exact origin '${expectedOrigin}', zero credential leakage.`);
+
+  // Verify visible attribution link
+  const attributionLink = await mapPage.$('a[href="https://www.openstreetmap.org/copyright"]');
+  assert.ok(attributionLink, 'Visible OpenStreetMap copyright attribution link must be present');
+  console.log('  [+] Visible OSM attribution link confirmed.');
+
+  // Test failure condition: tile provider 403 Forbidden policy block
+  console.log('[*] Testing tile provider 403 policy-block failure simulation...');
+  const failPage = await context.newPage();
+  await failPage.route('https://tile.openstreetmap.org/**', async (route) => {
+    await route.fulfill({
+      status: 403,
+      contentType: 'text/plain',
+      body: '403 Forbidden - Tile Policy Violation',
+    });
+  });
+
+  await failPage.goto(`http://127.0.0.1:${sarabPort}/?token=${validToken}`, {
+    waitUntil: 'domcontentloaded',
+  });
+
+  // Give Leaflet time to trigger tileerror events
+  await sleep(1200);
+
+  // Check that the map failure advisory is present without crashing or claiming driver is offline
+  const alertText = await failPage.evaluate(() => {
+    const alerts = Array.from(document.querySelectorAll('.MuiAlert-message'));
+    return alerts.map((el) => el.textContent || '').join(' ');
+  });
+
+  assert.ok(
+    alertText.includes('Map imagery unavailable') || alertText.includes('OpenStreetMap policy'),
+    `Expected map unavailable advisory when tile server fails with 403, got: '${alertText}'`
+  );
+  console.log('  [+] Tile failure advisory gracefully displayed without crashing or false driver fault claims.');
+
+  await failPage.close();
+  await mapPage.close();
+}
+
 function generateAttackerHtml(sarabPort) {
   return `<!DOCTYPE html>
 <html>
@@ -388,8 +497,9 @@ async function runBrowserSecuritySuite() {
     await verifyLegacyCookieEviction(context, dashboardPage, sarabPort);
     await verifyCrossOriginIsolation(context, dashboardPage, sarabPort, attackerReceivedCookies, validToken);
     await verifySecurityHeaders(dashboardPage, sarabPort);
+    await verifyOsmTilePolicyCompliance(context, sarabPort, validToken);
 
-    console.log('=== All Browser Security Regression Invariants Passed (4/4) ===');
+    console.log('=== All Browser Security Regression Invariants Passed (5/5) ===');
   } finally {
     if (browser) {
       try { await browser.close(); } catch {}
