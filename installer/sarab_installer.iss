@@ -3,7 +3,7 @@
 ; Inno Setup 6.x Script
 #define MyAppName "Sarab Virtual GNSS"
 #ifndef MyAppVersion
-  #define MyAppVersion "1.0.4"
+  #define MyAppVersion "1.0.5"
 #endif
 #define MyAppPublisher "TheMRVX"
 #define MyAppURL "https://github.com/TheMRVX/sarab"
@@ -32,6 +32,7 @@ PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=commandline
 CloseApplications=yes
 RestartIfNeededByRun=no
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -80,7 +81,6 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "driver uninstall"; RunOnceId: "U
 [Code]
 // SPDX-License-Identifier: MIT OR Apache-2.0
 const
-  HWND_BROADCAST = $FFFF;
   WM_SETTINGCHANGE = $001A;
   SMTO_ABORTIFHUNG = $0002;
   ENV_KEY = 'SYSTEM\CurrentControlSet\Control\Session Manager\Environment';
