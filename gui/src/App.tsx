@@ -543,7 +543,7 @@ export const App: React.FC = () => {
                   PATH (Default):
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
-                  sarab token
+                  sarab token --raw
                 </Typography>
               </Box>
 
@@ -554,7 +554,7 @@ export const App: React.FC = () => {
                   Current Directory / Portable:
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
-                  .\sarab.exe token
+                  .\sarab.exe token --raw
                 </Typography>
               </Box>
 
@@ -565,7 +565,18 @@ export const App: React.FC = () => {
                   Full Path (PowerShell):
                 </Typography>
                 <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
-                  &amp; &quot;&lt;path&gt;\sarab.exe&quot; token
+                  &amp; &quot;&lt;path&gt;\sarab.exe&quot; token --raw
+                </Typography>
+              </Box>
+
+              <Divider sx={{ borderColor: 'rgba(255, 255, 255, 0.06)' }} />
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Full Path (Command Prompt):
+                </Typography>
+                <Typography component="code" sx={{ fontFamily: 'monospace', fontSize: '0.82rem', color: 'primary.light' }}>
+                  &quot;&lt;path&gt;\sarab.exe&quot; token --raw
                 </Typography>
               </Box>
 

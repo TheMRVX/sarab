@@ -42,13 +42,13 @@ Depending on your installation type and PATH configuration:
   ```powershell
   sarab --version
   sarab status
-  sarab token
+  sarab token --raw
   ```
 - **When Sarab is not on PATH (or running portable ZIP)**:
   - **PowerShell (with call operator `&` and quoted path)**:
     ```powershell
     & "$env:ProgramFiles\Sarab\sarab.exe" status
-    & "$env:ProgramFiles\Sarab\sarab.exe" token
+    & "$env:ProgramFiles\Sarab\sarab.exe" token --raw
     ```
     Or navigate to the folder first:
     ```powershell

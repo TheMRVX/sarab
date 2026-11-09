@@ -1,15 +1,15 @@
 {
   "version": 1,
   "mode": "production",
-  "source_hash": "3f2e56507d8e85e126c019e60e4c782918ab416d5905283c1ed00f3a9272dee8",
-  "dist_hash": "c4c631a205616feda38ea1c0f54b33d09c890d6d62ead1444231bbaafc0c52d4",
+  "source_hash": "f51fb543e336952a4f52eabe4da41511a176ac36d0050f28608b0b7968293db2",
+  "dist_hash": "682106ac305d3058882da416a349361ec422f3fb1bf914611f2624cf3cd9b435",
   "build_env": {
     "mode": "production",
     "vite_env": {}
   },
   "assets": {
-    "assets/index-B3zddvYv.js": "80acff3f9aa4b33017ac282fc013234aaf9ac8727c16baf239392208fa958e94",
     "assets/index-DoA0lBxe.css": "aac6cfc486d1e720c6d2ef059c1ef8f3b590ed8ed7a20fef659d7b4900efdcab",
+    "assets/index-G4NEIKep.js": "e0e429fc9fc8c2d2d1f248cf2a4b8a81343a82e0a40c64f04f19856b11495c54",
     "assets/roboto-cyrillic-300-normal-D0x1uCa7.woff": "1c9387727df3ee2c770ac3d0ac2da964794b28633fabecc0f2ff87487b77d61f",
     "assets/roboto-cyrillic-300-normal-DzUz0kzv.woff2": "b054e90b2260ca3790dd89fc23d63f1a2dd7a446204dc2162f2a15a95811dec7",
     "assets/roboto-cyrillic-400-normal-BepgbcUK.woff": "383c105bb30e149e8f2603918cbbf3e2f1051bb170a16ad3e329f695c136128c",
@@ -74,6 +74,6 @@
     "assets/roboto-vietnamese-500-normal-BgoYVz-9.woff": "784dc1e97a55033a8e1f18ca60022ec8d8e5524abd05abbe52cf4b936ac3f6e5",
     "assets/roboto-vietnamese-700-normal-BEVeWqJt.woff2": "bec340ec8c7ec4940533eeceadddb00ac2da872c57c67b0c55e772c7c32dad4e",
     "assets/roboto-vietnamese-700-normal-kpkdMgbf.woff": "0c5b83d883ce2e45aed6e1634002d1a19291f375ddfdb21bb3cd2820e5b354f1",
-    "index.html": "afec5665d8859db857488cc3e02a0aa5e428613f0acde0ce1b4f02a81dbae55c"
+    "index.html": "0cbae7fbc9c86c0a45cce78957ffede6163b2aeb7380eb65818e1621e2f3fd5a"
   }
 }

@@ -65,6 +65,8 @@ These describe implemented code paths, **not a certification of behavior on ever
 2. On an authorized Windows test machine, open an elevated terminal. For advanced mode, review [driver installation and Test Signing](docs/INSTALLATION.md) **before** changing firmware or boot configuration.
 3. With a driver installed and running, configure a test fix:
 
+   **In PowerShell:**
+
    ```powershell
    # If Sarab was installed with PATH enabled (fresh terminal):
    sarab set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
@@ -78,26 +80,54 @@ These describe implemented code paths, **not a certification of behavior on ever
    .\sarab.exe status
    .\sarab.exe read
 
-   # Or using the full quoted path:
-   # In PowerShell (call operator &):
+   # Or using the full quoted path (call operator &):
    & "$env:ProgramFiles\Sarab\sarab.exe" status
-   # In Command Prompt:
+   ```
+
+   **In Command Prompt:**
+
+   ```cmd
+   rem If Sarab was installed with PATH enabled (fresh terminal):
+   sarab set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
+   sarab enable
+   sarab status
+   sarab read
+
+   rem Or when running from the executable directory (portable ZIP or PATH disabled):
+   sarab.exe set --lat 35.6997 --lon 51.3380 --alt 1200 --acc 5
+   sarab.exe enable
+   sarab.exe status
+   sarab.exe read
+
+   rem Or using the full quoted path:
    "%ProgramFiles%\Sarab\sarab.exe" status
    ```
 
-   For a no-driver fallback instead, run:
+   For a no-driver fallback instead:
 
-   ```powershell
-   sarab simple --lat 35.6997 --lon 51.3380
-   # Or: .\sarab.exe simple --lat 35.6997 --lon 51.3380
-   ```
+   - **In PowerShell:**
+     ```powershell
+     sarab simple --lat 35.6997 --lon 51.3380
+     # Or: .\sarab.exe simple --lat 35.6997 --lon 51.3380
+     ```
+   - **In Command Prompt:**
+     ```cmd
+     sarab simple --lat 35.6997 --lon 51.3380
+     rem Or: sarab.exe simple --lat 35.6997 --lon 51.3380
+     ```
 
 4. To open the locally hosted dashboard:
 
-   ```powershell
-   sarab gui --open
-   # Or: .\sarab.exe gui --open
-   ```
+   - **In PowerShell:**
+     ```powershell
+     sarab gui --open
+     # Or: .\sarab.exe gui --open
+     ```
+   - **In Command Prompt:**
+     ```cmd
+     sarab gui --open
+     rem Or: sarab.exe gui --open
+     ```
 
    The default binding is `127.0.0.1:8090`. Avoid binding the control API to a publicly accessible network interface.
 
