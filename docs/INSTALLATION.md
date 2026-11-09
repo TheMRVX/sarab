@@ -17,7 +17,7 @@ The current release workflow constructs a ZIP containing `sarab.exe`, `SarabGnss
 Sarab is available in two distribution packages:
 
 1. **Windows Installer (`SarabSetup-vX.Y.Z.exe`)**:
-   - Performs an elevated, system-wide installation into `{autopf}\Sarab` (default: `C:\Program Files\Sarab`).
+   - Performs an elevated, system-wide installation into `{autopf}\Sarab` (default: `%ProgramFiles%\Sarab`).
    - Automatically provisions Start Menu shortcuts:
      - **Sarab Virtual GNSS Control Panel** (launches browser dashboard).
      - **Sarab Command Prompt** (command shell opened directly into the installation directory).
@@ -42,43 +42,73 @@ Depending on your installation type and PATH configuration:
   ```powershell
   sarab --version
   sarab status
-  sarab token
+  sarab token --raw
   ```
 - **When Sarab is not on PATH (or running portable ZIP)**:
   - **PowerShell (with call operator `&` and quoted path)**:
     ```powershell
-    & "C:\Program Files\Sarab\sarab.exe" status
-    & "C:\Program Files\Sarab\sarab.exe" token
+    & "$env:ProgramFiles\Sarab\sarab.exe" status
+    & "$env:ProgramFiles\Sarab\sarab.exe" token --raw
     ```
     Or navigate to the folder first:
     ```powershell
-    cd "C:\Program Files\Sarab"
+    cd "$env:ProgramFiles\Sarab"
     .\sarab.exe status
     ```
-  - **Command Prompt (CMD)**:
+  - **Command Prompt**:
     ```cmd
-    "C:\Program Files\Sarab\sarab.exe" status
+    "%ProgramFiles%\Sarab\sarab.exe" status
     ```
     Or navigate using `/d` to switch drives if required:
     ```cmd
-    cd /d "C:\Program Files\Sarab"
+    cd /d "%ProgramFiles%\Sarab"
     sarab.exe status
     ```
   - **Sarab Command Prompt shortcut**:
-    Open **Start Menu > Sarab Virtual GNSS > Sarab Command Prompt**. This pre-configures the working directory in `{app}` with `sarab.exe` immediately executable.
+    Open **Start Menu > Sarab Virtual GNSS > Sarab Command Prompt**. This pre-configures the working directory in the installation folder with `sarab.exe` immediately executable.
 
-### Resolving "'sarab' is not recognized"
+### If sarab is not recognized
 
-If you encounter:
-- PowerShell: `The term 'sarab' is not recognized as the name of a cmdlet, function, script file, or operable program`
-- CMD: `'sarab' is not recognized as an internal or external command, operable program or batch file`
+The Windows installer enables the **Add Sarab to PATH** task by default. However, Command Prompt and PowerShell windows that were already open before installation started do not automatically inherit the updated system PATH environment variable.
 
-Follow these troubleshooting steps:
-1. **Fresh terminal check**: If the terminal was open before or during installation, close it and open a new terminal window to inherit the updated system environment.
-2. **Verify PATH task**: If you deselected "Add Sarab to PATH" during installation, re-run the installer with the task checked, or add the installation directory to your environment variables manually.
-3. **Use the Start Menu shortcut**: Launch **Sarab Command Prompt**, which immediately provides access to `sarab.exe`.
-4. **Use full quoted paths**: In PowerShell, run `& "C:\Program Files\Sarab\sarab.exe" <command>`. In CMD, run `"C:\Program Files\Sarab\sarab.exe" <command>`.
-5. **Portable ZIP users**: Ensure you have changed directory (`cd`) to the extracted archive folder before running `.\sarab.exe`.
+To use `sarab` directly:
+1. Close your existing terminal window.
+2. Open a new Command Prompt or PowerShell window.
+3. Verify the installation by running:
+   ```cmd
+   sarab --version
+   ```
+
+If `sarab` remains unrecognized, choose one of the following alternatives:
+
+1. **Launch Sarab Command Prompt from the Start Menu**
+   Open **Start Menu > Sarab Virtual GNSS > Sarab Command Prompt**. This pre-configures a Command Prompt session in the Sarab installation directory with `sarab.exe` immediately available.
+
+2. **Run from the installation directory**
+   Navigate to the directory where Sarab was installed (or extracted, if using the portable ZIP package):
+   - In PowerShell:
+     ```powershell
+     cd "$env:ProgramFiles\Sarab"
+     .\sarab.exe token --raw
+     ```
+   - In Command Prompt:
+     ```cmd
+     cd /d "%ProgramFiles%\Sarab"
+     sarab.exe token --raw
+     ```
+
+3. **Run using the full installation path**
+   Execute the binary directly by specifying its absolute path:
+   - In PowerShell (using the call operator `&`):
+     ```powershell
+     & "$env:ProgramFiles\Sarab\sarab.exe" token --raw
+     ```
+   - In Command Prompt:
+     ```cmd
+     "%ProgramFiles%\Sarab\sarab.exe" token --raw
+     ```
+
+> **Note:** If you chose a custom installation directory during setup, replace `$env:ProgramFiles\Sarab` or `%ProgramFiles%\Sarab` with your chosen directory path. The portable ZIP package does not modify PATH automatically; portable installations must be run either from their extracted directory or via their full path.
 
 ## Simple mode: no driver
 

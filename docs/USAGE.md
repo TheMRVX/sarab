@@ -57,21 +57,29 @@ Do not use a public OSRM demo server as a production dependency. The Project-OSR
 # When Sarab is on PATH (default installer option in a fresh terminal):
 sarab gui --open
 sarab web --port 8090
-sarab token
+sarab token --raw
 sarab service install --port 8090
 sarab service start
 sarab service status
 sarab service stop
 sarab service uninstall
 
-# Or when running from the installation folder / portable ZIP:
+# Or when running from the installation folder (portable ZIP or PATH disabled):
+# In PowerShell:
 # .\sarab.exe gui --open
-# .\sarab.exe token
-# Or via PowerShell call operator (&) with full quoted path:
-# & "C:\Program Files\Sarab\sarab.exe" token
+# .\sarab.exe token --raw
+# In Command Prompt:
+# sarab.exe gui --open
+# sarab.exe token --raw
+#
+# Or via full quoted path:
+# In PowerShell (call operator &):
+# & "$env:ProgramFiles\Sarab\sarab.exe" token --raw
+# In Command Prompt:
+# "%ProgramFiles%\Sarab\sarab.exe" token --raw
 ```
 
-By default, the dashboard binds to `127.0.0.1:8090`. The web dashboard is protected by local authentication with fail-closed CSPRNG tokens transmitted via the `X-Sarab-Token` header and retained only in origin-isolated `sessionStorage` (preventing cross-origin ambient cookie attacks; legacy session cookies are actively evicted). When launched via `sarab gui --open` (or `.\sarab.exe gui --open`), your browser opens with a token bootstrap parameter that establishes the session and is immediately scrubbed from the browser address bar and history. If opened directly or in another browser tab, run `sarab token` (or `.\sarab.exe token` from the installation directory, or launch the **Sarab Command Prompt** shortcut) to view the active session token and enter it into the dashboard unlock prompt. Map tiles are fetched on-demand from OpenStreetMap contributors; all application assets, fonts (@fontsource/roboto), and stylesheets (Leaflet CSS) are embedded locally.
+By default, the dashboard binds to `127.0.0.1:8090`. The web dashboard is protected by local authentication with fail-closed CSPRNG tokens transmitted via the `X-Sarab-Token` header and retained only in origin-isolated `sessionStorage` (preventing cross-origin ambient cookie attacks; legacy session cookies are actively evicted). When launched via `sarab gui --open` (or `.\sarab.exe gui --open`), your browser opens with a token bootstrap parameter that establishes the session and is immediately scrubbed from the browser address bar and history. If opened directly or in another browser tab, run `sarab token --raw` (or `.\sarab.exe token --raw` from the installation directory, or launch the **Sarab Command Prompt** shortcut) to view the active session token and enter it into the dashboard unlock prompt. Map tiles are fetched on-demand from OpenStreetMap contributors; all application assets, fonts (@fontsource/roboto), and stylesheets (Leaflet CSS) are embedded locally.
 
 ## Configuration files
 
@@ -95,7 +103,7 @@ Do **not** share `.session_token`; treat it as a credential. File ACLs and sensi
 
 | Symptom | What to inspect |
 | --- | --- |
-| `'sarab' is not recognized` / cmdlet not found | Fresh terminal not opened after installation (existing terminals keep old environment), "Add Sarab to PATH" was unchecked during install, or running from an unextracted portable location. Open a fresh terminal window, use the Start Menu "Sarab Command Prompt" shortcut, or run with explicit path: `.\sarab.exe` or `& "C:\Program Files\Sarab\sarab.exe"`. |
+| Command not found / not recognized | Terminal PATH inheritance, Start Menu shortcut, or full installation path. See [If sarab is not recognized](INSTALLATION.md#if-sarab-is-not-recognized). |
 | Driver install fails | Elevated terminal, correct INF/CAT/DLL/CER, matching x64 package, Windows driver status, Test Signing and Secure Boot policy |
 | Location read returns no fix | Windows Location services, privacy settings, sensor status and application permissions |
 | App shows another location | Cached position, Wi-Fi, IP/network-derived, independent or server-side location providers |
