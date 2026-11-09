@@ -105,6 +105,8 @@ These describe implemented code paths, **not a certification of behavior on ever
 
 The installer adds Sarab to the system PATH by default, but Command Prompt and PowerShell windows open before installation do not automatically receive the updated PATH.
 
+> btw sarab cmd is still acting up rn once i get it to behave ill add the runtime stuff here docs are done for now tho
+
 Close the current terminal, open a new Command Prompt or PowerShell window, and run:
 
 ```cmd
