@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.6] - 2026-11-10
+
+### Added
+- Dedicated full-path Command Prompt execution examples alongside PowerShell syntax in the dashboard authentication dialog (`gui/src/App.tsx`).
+
+### Changed
+- Standardized dashboard unlock and CLI onboarding instructions on `sarab token --raw` across documentation and UI prompts.
+- Completely separated PowerShell and Command Prompt syntax blocks across `README.md`, `docs/INSTALLATION.md`, and `docs/USAGE.md`.
+- Streamlined CLI troubleshooting in `docs/USAGE.md` with direct references to the dedicated PATH resolution guide.
+
+### Fixed
+- Synchronized release version metadata across Rust manifest, GUI package manifest, and Inno Setup installer.
+- Rebuilt production GUI assets with updated onboarding instructions and deterministic build fingerprinting.
+
 ## [1.0.5] - 2026-11-07
 
 ### Fixed
