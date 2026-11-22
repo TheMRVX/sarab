@@ -17,7 +17,7 @@ serde_json = "1.0.154"
 mime_guess = "2.0.5"
 quick-xml = "0.37"
 ureq = { version = "2.10", features = ["json"] }
-getrandom = "0.2"
+getrandom = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 windows-service = "0.8"
