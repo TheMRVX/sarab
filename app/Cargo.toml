@@ -3,7 +3,7 @@ name = "sarab"
 version = "1.0.6"
 edition = "2021"
 authors = ["TheMRVX"]
-description = "High-precision GPS location spoofer for Windows 10/11"
+description = "Virtual GNSS location provider and testing toolkit for Windows 10/11"
 license = "MIT OR Apache-2.0"
 
 [dependencies]

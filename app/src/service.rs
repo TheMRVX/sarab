@@ -21,7 +21,7 @@ pub mod win {
     pub const SERVICE_NAME: &str = "SarabService";
     pub const SERVICE_DISPLAY_NAME: &str = "Sarab Virtual GNSS Service";
     pub const SERVICE_DESCRIPTION: &str =
-        "Provides background GPS location spoofing and HTTP control API for Sarab GNSS.";
+        "Provides background virtual GNSS location control and HTTP API for Sarab.";
 
     define_windows_service!(ffi_service_main, sarab_service_main);
 
