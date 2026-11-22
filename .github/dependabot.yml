@@ -44,3 +44,12 @@ updates:
       npm-compatible:
         patterns: ["*"]
         update-types: [minor, patch]
+      react-mui-major:
+        patterns:
+          - "react"
+          - "react-dom"
+          - "@types/react"
+          - "@types/react-dom"
+          - "@mui/*"
+          - "@emotion/*"
+        update-types: [major]
