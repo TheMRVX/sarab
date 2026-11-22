@@ -6,7 +6,7 @@ use clap::{Args, Parser, Subcommand};
     name = "sarab",
     author = "TheMRVX",
     version,
-    about = "Sarab (Mirage) — High-precision GPS location spoofer for Windows 10/11",
+    about = "Sarab (Mirage) — Virtual GNSS location provider and testing toolkit for Windows 10/11",
     long_about = "Sarab feeds arbitrary GPS coordinates directly into the Windows Location API via a virtual GNSS sensor driver."
 )]
 pub struct Cli {
