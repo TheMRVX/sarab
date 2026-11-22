@@ -8,7 +8,7 @@ assets, hosted map services, or operating-system components.
 
 ## Input lockfile fingerprints
 
-- Cargo.lock SHA-256 (LF-normalized): dd40271a62e1126873a20498e46867f88b8b868d7c625427c0cffd4fd8cf9e86
+- Cargo.lock SHA-256 (LF-normalized): e93fd0c6dda66c7a70f73401f0b5526cac0148d2169c7483c6621bffb1357a12
 - package-lock.json SHA-256 (LF-normalized): de312c6247fb3a469e53c7fe3c4d62c9391f2710464e97182b5004e43c8b244f
 
 ## Rust dependency notices
@@ -1701,7 +1701,7 @@ DEALINGS IN THE SOFTWARE.
 ## MIT License
 
 Used by:
-- sha2@0.11.0
+- sha2@0.11.1
 
 ~~~~text
 Copyright (c) 2016-2026 The RustCrypto Project Developers
@@ -2119,9 +2119,9 @@ Used by:
 - anstyle-query@1.1.5
 - anstyle-wincon@3.0.11
 - anstyle@1.0.14
-- clap@4.6.7
+- clap@4.6.8
 - clap_builder@4.6.7
-- clap_derive@4.6.7
+- clap_derive@4.6.8
 - clap_lex@1.1.1
 - colorchoice@1.0.5
 - is_terminal_polyfill@1.70.2
@@ -2507,7 +2507,7 @@ Used by:
 - serde_derive@1.0.229
 - serde_json@1.0.154
 - syn@2.0.119
-- syn@3.0.6
+- syn@3.0.10
 - unicode-ident@1.0.26
 - zmij@1.0.23
 
@@ -2784,9 +2784,9 @@ THE SOFTWARE.
 ## MIT License
 
 Used by:
-- rust-embed-impl@8.13.0
-- rust-embed-utils@8.13.0
-- rust-embed@8.13.0
+- rust-embed-impl@8.14.0
+- rust-embed-utils@8.14.0
+- rust-embed@8.14.0
 
 ~~~~text
 The MIT License (MIT)
